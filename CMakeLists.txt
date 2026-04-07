@@ -6,8 +6,28 @@ PROJECT(hermes LANGUAGES C CXX VERSION 0.3.4)
 
 LIST(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake/Modules)
 
-# Determine whether or not to build the compiler.
+# --- NEW: RPC / TI-RPC DETECTION ---
+# RHEL 8+ and modern Linux require libtirpc as RPC is no longer in glibc.
+FIND_PACKAGE(PkgConfig)
+IF(PKG_CONFIG_FOUND)
+  PKG_CHECK_MODULES(TIRPC libtirpc)
+ENDIF()
 
+IF(TIRPC_FOUND)
+  MESSAGE(STATUS "Found libtirpc: ${TIRPC_INCLUDE_DIRS}")
+  # Make headers available globally for subdirectories
+  INCLUDE_DIRECTORIES(${TIRPC_INCLUDE_DIRS})
+  LIST(APPEND EXTRA_LIBS ${TIRPC_LIBRARIES})
+  # Some systems require -I/usr/include/tirpc to be explicitly passed to the
+  # compiler even if the header is used as #include <rpc/rpc.h>
+  ADD_DEFINITIONS(${TIRPC_CFLAGS_OTHER})
+ELSE()
+  MESSAGE(STATUS "libtirpc not found; assuming RPC is provided by the system glibc")
+  SET(RPC_LIBS "")
+ENDIF()
+# -----------------------------------
+
+# Determine whether or not to build the compiler.
 SET(WITH_COMPILER_DOC "Build the Hermes compiler. Options are AUTO, ON, or OFF.")
 SET(WITH_COMPILER "AUTO" CACHE STRING "${WITH_COMPILER_DOC}")
 SET_PROPERTY(CACHE WITH_COMPILER PROPERTY STRINGS AUTO ON OFF)
