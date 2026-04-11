@@ -8,7 +8,13 @@ namespace fortran {
 std::string
 bool_t::in() const
 {
-  return "logical";
+  return "logical(kind = c_bool)";
+}
+
+std::set<std::string>
+bool_t::iso_c_symbols() const
+{
+  return { "c_bool" };
 }
 
 std::shared_ptr<sizer>
@@ -165,6 +171,12 @@ std::string
 uint64::in() const
 {
   return "integer(kind = c_int64_t)";
+}
+
+std::set<std::string>
+uint64::iso_c_symbols() const
+{
+  return { "c_int64_t" };
 }
 
 std::shared_ptr<sizer>
