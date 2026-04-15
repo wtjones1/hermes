@@ -72,19 +72,23 @@ char_t::default_value() const
 void
 char_t::pack(std::ostream& a_out, const std::string& a_variable) const
 {
-  a_out << tab << "s = " << a_variable << ".encode('utf-8') if isinstance(" << a_variable << ", str) else " << a_variable << std::endl;
-  a_out << tab << "s = s[:1] + b'\\x00' * (1 - len(s[:1]))" << std::endl;
-  a_out << tab << "padding = (4 - (1 % 4)) % 4" << std::endl;
-  a_out << tab << "buffer.extend(s + b'\\x00' * padding)" << std::endl;
+  a_out << tab << "if sys.version_info[0] < 3:" << std::endl;
+  a_out << indent;
+  a_out << tab << "c = ord(" << a_variable << ") if isinstance(" << a_variable << ", str) else ord(chr(" << a_variable << "))" << std::endl;
+  a_out << unindent;
+  a_out << tab << "else:" << std::endl;
+  a_out << indent;
+  a_out << tab << "c = ord(" << a_variable << ") if isinstance(" << a_variable << ", str) else " << a_variable << std::endl;
+  a_out << unindent;
+  a_out << tab << "buffer.extend(struct.pack('>I', c))" << std::endl;
 }
 
 void
 char_t::unpack(std::ostream& a_out, const std::string& a_variable) const
 {
-  a_out << tab << "padding = (4 - (1 % 4)) % 4" << std::endl;
-  a_out << tab << "total_bytes = 1 + padding" << std::endl;
-  a_out << tab << a_variable << " = data[position:position + 1].rstrip(b'\\x00').decode('utf-8')" << std::endl;
-  a_out << tab << "position += total_bytes" << std::endl;
+  a_out << tab << "c = struct.unpack_from('>I', data, position)[0]" << std::endl;
+  a_out << tab << "position += 4" << std::endl;
+  a_out << tab << a_variable << " = chr(c)" << std::endl;
 }
 
 int8::int8()

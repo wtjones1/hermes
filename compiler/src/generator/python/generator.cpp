@@ -47,6 +47,7 @@ generator::write_header()
   using std::endl;
   m_py << tab << "import hermes" << endl;
   m_py << tab << "import struct" << endl;
+  m_py << tab << "import sys" << endl;
   for (auto import : m_blueprint->imports())
   {
     m_py << tab << "from " << stem(import.first) << " import *" << endl;
