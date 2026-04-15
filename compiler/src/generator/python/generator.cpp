@@ -46,7 +46,7 @@ generator::write_header()
 {
   using std::endl;
   m_py << tab << "import hermes" << endl;
-  m_py << tab << "import xdrlib" << endl;
+  m_py << tab << "import struct" << endl;
   for (auto import : m_blueprint->imports())
   {
     m_py << tab << "from " << stem(import.first) << " import *" << endl;
@@ -143,15 +143,15 @@ generator::reader(const field_vector& a_fields)
   auto ctor = join(a_fields.begin(), a_fields.end(), member).left("cls(").right(")");
 
   m_py << tab << "@classmethod" << std::endl;
-  m_py << tab << "def read(cls, xdr):" << endl;
+  m_py << tab << "def read(cls, data, position):" << endl;
   m_py << indent;
   for (const auto& field_ : a_fields)
   {
     name = field_.name();
     type = translate(field_.type());
-    type->unpack(m_py, name);
+    type->unpack(m_py, name); // unpack() needs to update position
   }
-  m_py << tab << "return " << ctor << endl;
+  m_py << tab << "return (" << ctor << ", position)" << endl;
   m_py << unindent;
   m_py << endl;
 }
@@ -164,13 +164,13 @@ generator::writer(const field_vector& a_fields)
   std::string name;
   pointer type;
 
-  m_py << tab << "def write(self, xdr):" << endl;
+  m_py << tab << "def write(self, buffer):" << endl;
   m_py << indent;
   for (const auto& field_ : a_fields)
   {
     name = "self." + field_.name();
     type = translate(field_.type());
-    type->pack(m_py, name);
+    type->pack(m_py, name);  // This will append to buffer
   }
   m_py << unindent;
   m_py << endl;
@@ -293,9 +293,9 @@ generator::client_method(const state::procedure& a_procedure, int a_id)
   m_py << tab << req_header << endl;
   if (has_args)
   {
-    m_py << tab << "xdr = xdrlib.Packer()" << endl;
+    m_py << tab << "buffer = bytearray()" << endl;
     std::for_each(params.begin(), params.end(), pack);
-    m_py << tab << "self.socket.send(xdr.get_buffer())" << endl;
+    m_py << tab << "self.socket.send(bytes(buffer))" << endl;
   }
   m_py << tab << "header = " << rep_header << endl;
   m_py << tab << "if header.number() == 0x01:" << endl;
@@ -306,7 +306,8 @@ generator::client_method(const state::procedure& a_procedure, int a_id)
   }
   else
   {
-    m_py << tab << "xdr = xdrlib.Unpacker(self.socket.recv())" << endl;
+    m_py << tab << "data = self.socket.recv()" << endl;
+    m_py << tab << "position = 0" << endl;
     translate(result)->unpack(m_py, "result");
     m_py << tab << "return result" << endl;
   }
@@ -318,7 +319,8 @@ generator::client_method(const state::procedure& a_procedure, int a_id)
     eid++;
     m_py << tab << "elif header.number() == " << to_hex(eid) << ":" << endl;
     m_py << indent;
-    m_py << tab << "xdr = xdrlib.Unpacker(self.socket.recv())" << endl;
+    m_py << tab << "data = self.socket.recv()" << endl;
+    m_py << tab << "position = 0" << endl;
     translate(err)->unpack(m_py, "result");
     m_py << tab << "raise result" << endl;
     m_py << unindent;
@@ -359,7 +361,8 @@ generator::server_method(const state::procedure& a_procedure, int a_id)
   m_py << indent;
   if (has_args)
   {
-    m_py << tab << "xdr = xdrlib.Unpacker(self.socket.recv())" << endl;
+    m_py << tab << "data = self.socket.recv()" << endl;
+    m_py << tab << "position = 0" << endl;
     std::for_each(params.begin(), params.end(), unpack);
   }
 
@@ -381,9 +384,9 @@ generator::server_method(const state::procedure& a_procedure, int a_id)
   if (!is_void)
   {
     m_py << tab << "hermes.ReplyHeader.create(0x01, True).send(self.socket)" << endl;
-    m_py << tab << "xdr = xdrlib.Packer()" << endl;
+    m_py << tab << "buffer = bytearray()" << endl;
     translate(result)->pack(m_py, "result");
-    m_py << tab << "self.socket.send(xdr.get_buffer())" << endl;
+    m_py << tab << "self.socket.send(bytes(buffer))" << endl;
   }
   else
   {
@@ -403,9 +406,9 @@ generator::server_method(const state::procedure& a_procedure, int a_id)
     m_py << tab << "except " << type->name() << " as err:" << endl;
     m_py << indent;
     m_py << tab << "hermes.ReplyHeader.create(" << to_hex(reply_id) << ", True).send(self.socket)" << endl;
-    m_py << tab << "xdr = xdrlib.Packer()" << endl;
+    m_py << tab << "buffer = bytearray()" << endl;
     type->pack(m_py, "err");
-    m_py << tab << "self.socket.send(xdr.get_buffer())" << endl;
+    m_py << tab << "self.socket.send(bytes(buffer))" << endl;
     m_py << unindent;
   }
 
