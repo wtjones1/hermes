@@ -30,8 +30,8 @@ map::pack(std::ostream& a_out, const std::string& a_variable) const
 {
   using std::endl;
 
-  a_out << tab << "xdr.pack_uint(len(" << a_variable << "))" << endl;
-  a_out << tab << "for key, value in " << a_variable << ".iteritems():" << endl;
+  a_out << tab << "buffer.extend(struct.pack('>I', len(" << a_variable << ")))" << endl;
+  a_out << tab << "for key, value in " << a_variable << ".items():" << endl;
   a_out << indent;
   m_key_type->pack(a_out, "key");
   m_value_type->pack(a_out, "value");
@@ -45,7 +45,8 @@ map::unpack(std::ostream& a_out, const std::string& a_variable) const
 
   auto length = "l_" + a_variable;
   a_out << tab << a_variable << " = {}" << endl;
-  a_out << tab << length << " = xdr.unpack_uint()" << endl;
+  a_out << tab << length << " = struct.unpack_from('>I', data, position)[0]" << endl;
+  a_out << tab << "position += 4" << endl;
   a_out << tab << "for n in range(" << length << "):" << endl;
   a_out << indent;
   m_key_type->unpack(a_out, "key");
@@ -72,7 +73,7 @@ set::pack(std::ostream& a_out, const std::string& a_variable) const
 {
   using std::endl;
 
-  a_out << tab << "xdr.pack_uint(len(" << a_variable << "))" << endl;
+  a_out << tab << "buffer.extend(struct.pack('>I', len(" << a_variable << ")))" << endl;
   a_out << tab << "for key in " << a_variable << ":" << endl;
   a_out << indent;
   m_key_type->pack(a_out, "key");
@@ -86,7 +87,8 @@ set::unpack(std::ostream& a_out, const std::string& a_variable) const
 
   auto length = "l_" + a_variable;
   a_out << tab << a_variable << " = set()" << endl;
-  a_out << tab << length << " = xdr.unpack_uint()" << endl;
+  a_out << tab << length << " = struct.unpack_from('>I', data, position)[0]" << endl;
+  a_out << tab << "position += 4" << endl;
   a_out << tab << "for n in range(" << length << "):" << endl;
   a_out << indent;
   m_key_type->unpack(a_out, "key");
@@ -112,7 +114,7 @@ vector::pack(std::ostream& a_out, const std::string& a_variable) const
 {
   using std::endl;
 
-  a_out << tab << "xdr.pack_uint(len(" << a_variable << "))" << endl;
+  a_out << tab << "buffer.extend(struct.pack('>I', len(" << a_variable << ")))" << endl;
   a_out << tab << "for value in " << a_variable << ":" << endl;
   a_out << indent;
   m_value_type->pack(a_out, "value");
@@ -126,7 +128,8 @@ vector::unpack(std::ostream& a_out, const std::string& a_variable) const
 
   auto length = "l_" + a_variable;
   a_out << tab << a_variable << " = []" << endl;
-  a_out << tab << length << " = xdr.unpack_uint()" << endl;
+  a_out << tab << length << " = struct.unpack_from('>I', data, position)[0]" << endl;
+  a_out << tab << "position += 4" << endl;
   a_out << tab << "for n in range(" << length << "):" << endl;
   a_out << indent;
   m_value_type->unpack(a_out, "value");
