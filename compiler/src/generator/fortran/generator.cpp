@@ -932,6 +932,17 @@ void
 generator::reader(std::shared_ptr<state::structure> a_structure)
 {
   std::string name = a_structure->name();
+  
+  // Check if any field is a vector (needs length and loop variable)
+  bool has_vector = false;
+  for (const auto& field : a_structure->fields())
+  {
+    if (field.type()->is_vector())
+    {
+      has_vector = true;
+      break;
+    }
+  }
 
   m_src << tab << "function " << name << "_read(self, a_archive)";
   m_src << " result(status)" << std::endl;
@@ -939,6 +950,11 @@ generator::reader(std::shared_ptr<state::structure> a_structure)
   m_src << tab << "class(" << name << ") :: self" << std::endl;
   m_src << tab << "type(iarchive), intent(inout) :: a_archive" << std::endl;
   m_src << tab << "logical :: status" << std::endl;
+  if (has_vector)
+  {
+    m_src << tab << "integer(kind = c_int32_t) :: length" << std::endl;
+    m_src << tab << "integer(kind = c_int32_t) :: n" << std::endl;
+  }
   m_src << std::endl;
   archive(a_structure->fields(), true);
   m_src << unindent;
@@ -992,16 +1008,48 @@ generator::archive(const std::string& a_name,
                    bool a_first)
 {
   auto var = "self%" + member(a_name);
-  auto method = "a_archive%" + category(a_type, a_input);
-  if (a_first)
+  
+  // Check if this is a vector being read
+  if (a_input && a_type->is_vector())
   {
-    m_src << tab << "status = ";
+    // For vectors in structures, we need to manually read length and loop
+    auto as_vector = std::dynamic_pointer_cast<state::vector>(a_type);
+    auto value_type = as_vector->value_type();
+    std::string element_method;
+    
+    if (value_type->is_char())
+      element_method = "character";
+    else if (value_type->is_unsigned())
+      element_method = "unsigned";
+    else
+      element_method = "value";
+    
+    if (!a_first)
+    {
+      m_src << std::endl;
+    }
+    m_src << tab << "status = a_archive%length(length)" << std::endl;
+    m_src << tab << "if (allocated(" << var << ")) deallocate(" << var << ")" << std::endl;
+    m_src << tab << "allocate(" << var << "(length))" << std::endl;
+    m_src << tab << "do n = 1, length" << std::endl;
+    m_src << indent;
+    m_src << tab << "status = status .and. a_archive%" << element_method << "(" << var << "(n))" << std::endl;
+    m_src << unindent;
+    m_src << tab << "end do";
   }
   else
   {
-    m_src << " .and. &" << std::endl << tab << "         ";
+    auto method = "a_archive%" + category(a_type, a_input);
+    if (a_first)
+    {
+      m_src << tab << "status = ";
+    }
+    else
+    {
+      m_src << " .and. &" << std::endl << tab << "         ";
+    }
+    m_src << method << "(" << var << ")";
   }
-  m_src << method << "(" << var << ")";
 }
 
 void
@@ -1212,6 +1260,7 @@ generator::client_request(const std::string& a_interface,
   }
   m_src << std::endl;
 
+  std::string status;
   if (has_args)
   {
     m_src << tab << sizevar("archive_size", get_size(params));
@@ -1227,8 +1276,9 @@ generator::client_request(const std::string& a_interface,
       first = false;
     }
     m_src << std::endl;
+    status = "status .and. ";
   }
-  m_src << tab << "status = header%send(self%socket, " << a_id << ", ";
+  m_src << tab << "status = " << status << "header%send(self%socket, " << a_id << ", ";
   m_src << (has_args ? ".true." : ".false.") << ")" << std::endl;
   if (has_args)
   {
@@ -1414,12 +1464,14 @@ generator::server_request(const std::string& a_interface,
         is_string = true;
       }
     }
+    std::string status;
     if (type->allocatable() && !is_string)
     {
       m_src << tab << "status = archive%length(length)" << std::endl;
       m_src << tab << "allocate(" << param(f.name()) << "(length))" << std::endl;
+      status = "status .and. ";
     }
-    m_src << tab << "status = archive%" << category(f.type(), true);
+    m_src << tab << "status = " << status << "archive%" << category(f.type(), true);
     m_src << "(" << param(f.name()) << ")" << std::endl;
   }
   m_src << tab << "code = zmq_msg_close(message)" << std::endl;
