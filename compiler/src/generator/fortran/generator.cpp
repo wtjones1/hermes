@@ -1184,7 +1184,6 @@ generator::client_request(const std::string& a_interface,
   auto result = a_procedure.result();
   auto params = a_procedure.parameters();
   auto has_args = !params.empty();
-  auto is_void = result->is_void();
   auto func_name = a_interface + "_client_request_" + name;
 
   auto args = [&](const field& f){ m_src << ", " << param(f.name()); };
@@ -1230,7 +1229,7 @@ generator::client_request(const std::string& a_interface,
     m_src << std::endl;
   }
   m_src << tab << "status = header%send(self%socket, " << a_id << ", ";
-  m_src << (is_void ? ".false." : ".true.") << ")" << std::endl;
+  m_src << (has_args ? ".true." : ".false.") << ")" << std::endl;
   if (has_args)
   {
     m_src << tab << "code = zmq_msg_send(message, self%socket, 0)" << std::endl;
