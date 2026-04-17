@@ -1257,6 +1257,7 @@ generator::client_request(const std::string& a_interface,
     m_src << tab << "integer(kind = c_int) :: code" << std::endl;
     m_src << tab << "integer(kind = c_size_t) :: archive_size" << std::endl;
     m_src << tab << "character(kind = c_char, len = :), pointer :: buffer" << std::endl;
+    m_src << tab << "character(kind = c_char), dimension(:), pointer :: buffer_array" << std::endl;
   }
   m_src << std::endl;
 
@@ -1266,6 +1267,8 @@ generator::client_request(const std::string& a_interface,
     m_src << tab << sizevar("archive_size", get_size(params));
     m_src << tab << "code = zmq_msg_init_size(message, archive_size)" << std::endl;
     m_src << tab << "call c_f_pointer(zmq_msg_data(message), buffer)" << std::endl;
+    m_src << tab << "call c_f_pointer(zmq_msg_data(message), buffer_array, [archive_size])" << std::endl;
+    m_src << tab << "buffer_array(:) = c_null_char" << std::endl;
     m_src << tab << "call archive%create(buffer, archive_size)" << std::endl;
     m_src << tab << "status = ";
     for (const field& f : params)
