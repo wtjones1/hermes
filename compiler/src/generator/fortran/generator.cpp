@@ -1030,6 +1030,7 @@ generator::archive(const std::string& a_name,
     }
     else
     {
+      m_src << std::endl << tab << "status = status";
       m_src << " .and. &" << std::endl;
       m_src << tab << "         " << "a_archive%length(length)" << std::endl;
     }
@@ -1039,8 +1040,7 @@ generator::archive(const std::string& a_name,
     m_src << indent;
     m_src << tab << "status = status .and. a_archive%" << element_method << "(" << var << "(n))" << std::endl;
     m_src << unindent;
-    m_src << tab << "end do" << std::endl;
-    m_src << tab << "status = status";
+    m_src << tab << "end do";
   }
   else
   {
