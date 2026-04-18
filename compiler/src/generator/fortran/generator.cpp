@@ -1024,18 +1024,23 @@ generator::archive(const std::string& a_name,
     else
       element_method = "value";
     
-    if (!a_first)
+    if (a_first)
     {
-      m_src << std::endl;
+      m_src << tab << "status = a_archive%length(length)" << std::endl;
     }
-    m_src << tab << "status = a_archive%length(length)" << std::endl;
+    else
+    {
+      m_src << " .and. &" << std::endl;
+      m_src << tab << "         " << "a_archive%length(length)" << std::endl;
+    }
     m_src << tab << "if (allocated(" << var << ")) deallocate(" << var << ")" << std::endl;
     m_src << tab << "allocate(" << var << "(length))" << std::endl;
     m_src << tab << "do n = 1, length" << std::endl;
     m_src << indent;
     m_src << tab << "status = status .and. a_archive%" << element_method << "(" << var << "(n))" << std::endl;
     m_src << unindent;
-    m_src << tab << "end do";
+    m_src << tab << "end do" << std::endl;
+    m_src << tab << "status = status";
   }
   else
   {
