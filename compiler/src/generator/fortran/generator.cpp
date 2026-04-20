@@ -1376,7 +1376,11 @@ generator::server_handler(const std::string& a_interface,
   first = true;
   m_src << tab << (is_call ? "call" : "r =") << " self%" << name << "(";
   std::for_each(params.begin(), params.end(), args);
-  m_src << (is_string ? ", r" : "") << ")" << std::endl;
+  if (is_string)
+  {
+    m_src << sep() << "r";
+  }
+  m_src << ")" << std::endl;
 
   m_src << tab << "select case (self%outcome())" << std::endl << indent;
   m_src << tab << "case (1)" << std::endl << indent;
