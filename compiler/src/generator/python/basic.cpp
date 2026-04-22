@@ -15,13 +15,34 @@ basic::basic(const std::string& a_name, const std::string& a_type)
 void
 basic::pack(std::ostream& a_out, const std::string& a_variable) const
 {
-  a_out << tab << "xdr.pack_" << m_type << "(" << a_variable << ")" << std::endl;
+  std::string format;
+  if (m_type == "bool") format = ">I";
+  else if (m_type == "int") format = ">i";
+  else if (m_type == "uint") format = ">I";
+  else if (m_type == "hyper") format = ">q";
+  else if (m_type == "uhyper") format = ">Q";
+  else if (m_type == "float") format = ">f";
+  else if (m_type == "double") format = ">d";
+  
+  a_out << tab << "buffer.extend(struct.pack('" << format << "', " << a_variable << "))" << std::endl;
 }
 
 void
 basic::unpack(std::ostream& a_out, const std::string& a_variable) const
 {
-  a_out << tab << a_variable << " = xdr.unpack_" << m_type << "()" << std::endl;
+  std::string format;
+  int size;
+  
+  if (m_type == "bool") { format = ">I"; size = 4; }
+  else if (m_type == "int") { format = ">i"; size = 4; }
+  else if (m_type == "uint") { format = ">I"; size = 4; }
+  else if (m_type == "hyper") { format = ">q"; size = 8; }
+  else if (m_type == "uhyper") { format = ">Q"; size = 8; }
+  else if (m_type == "float") { format = ">f"; size = 4; }
+  else if (m_type == "double") { format = ">d"; size = 8; }
+  
+  a_out << tab << a_variable << " = struct.unpack_from('" << format << "', data, position)[0]" << std::endl;
+  a_out << tab << "position += " << size << std::endl;
 }
 
 bool_t::bool_t()
@@ -51,13 +72,23 @@ char_t::default_value() const
 void
 char_t::pack(std::ostream& a_out, const std::string& a_variable) const
 {
-  a_out << tab << "xdr.pack_fstring(" << a_variable << ", 1)" << std::endl;
+  a_out << tab << "if sys.version_info[0] < 3:" << std::endl;
+  a_out << indent;
+  a_out << tab << "c = ord(" << a_variable << ") if isinstance(" << a_variable << ", str) else ord(chr(" << a_variable << "))" << std::endl;
+  a_out << unindent;
+  a_out << tab << "else:" << std::endl;
+  a_out << indent;
+  a_out << tab << "c = ord(" << a_variable << ") if isinstance(" << a_variable << ", str) else " << a_variable << std::endl;
+  a_out << unindent;
+  a_out << tab << "buffer.extend(struct.pack('>I', c))" << std::endl;
 }
 
 void
 char_t::unpack(std::ostream& a_out, const std::string& a_variable) const
 {
-  a_out << tab << a_variable << " = xdr.unpack_fstring(1)" << std::endl;
+  a_out << tab << "c = struct.unpack_from('>I', data, position)[0]" << std::endl;
+  a_out << tab << "position += 4" << std::endl;
+  a_out << tab << a_variable << " = chr(c)" << std::endl;
 }
 
 int8::int8()
@@ -195,13 +226,13 @@ string::default_value() const
 void
 string::pack(std::ostream& a_out, const std::string& a_variable) const
 {
-  a_out << tab << "hermes.xdr_pack_string(xdr, " << a_variable << ")" << std::endl;
+  a_out << tab << "hermes.xdr_pack_string(buffer, " << a_variable << ")" << std::endl;
 }
 
 void
 string::unpack(std::ostream& a_out, const std::string& a_variable) const
 {
-  a_out << tab << a_variable << " = hermes.xdr_unpack_string(xdr)" << std::endl;
+  a_out << tab << a_variable << ", position = hermes.xdr_unpack_string(data, position)" << std::endl;
 }
 
 } // python namespace

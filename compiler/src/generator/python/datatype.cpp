@@ -25,13 +25,13 @@ datatype::name() const
 void
 datatype::pack(std::ostream& a_out, const std::string& a_variable) const
 {
-  a_out << tab << a_variable << ".write(xdr)" << std::endl;
+  a_out << tab << a_variable << ".write(buffer)" << std::endl;
 }
 
 void
 datatype::unpack(std::ostream& a_out, const std::string& a_variable) const
 {
-  a_out << tab << a_variable << " = " << m_name << ".read(xdr)" << std::endl;
+  a_out << tab << a_variable << ", position = " << m_name << ".read(data, position)" << std::endl;
 }
 
 } // python namespace
