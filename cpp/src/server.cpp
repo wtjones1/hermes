@@ -1,4 +1,5 @@
 #include "hermes/server.hpp"
+#include <cstring>
 
 namespace hermes {
 
@@ -49,6 +50,52 @@ server::serve(int a_count)
   for (auto n = 0; n < a_count; ++n)
   {
     serve_once();
+  }
+}
+
+// Standalone polling function implementation
+void
+poll_and_serve(std::vector<server*>& servers, int timeout_ms)
+{
+  if (servers.empty())
+  {
+    return;
+  }
+  
+  // Prepare poll items
+  std::vector<zmq_pollitem_t> poll_items(servers.size());
+  
+  for (size_t i = 0; i < servers.size(); ++i)
+  {
+    poll_items[i].socket = servers[i]->m_socket;
+    poll_items[i].fd = 0;
+    poll_items[i].events = ZMQ_POLLIN;
+    poll_items[i].revents = 0;
+  }
+  
+  // Poll all sockets
+  int rc = zmq_poll(poll_items.data(), static_cast<int>(poll_items.size()), 
+                    timeout_ms);
+  
+  if (rc < 0)
+  {
+    // Error occurred
+    throw error(zmq_strerror(errno));
+  }
+  
+  if (rc == 0)
+  {
+    // Timeout - no messages
+    return;
+  }
+  
+  // Serve requests on sockets that are ready
+  for (size_t i = 0; i < servers.size(); ++i)
+  {
+    if (poll_items[i].revents & ZMQ_POLLIN)
+    {
+      servers[i]->serve_once();
+    }
   }
 }
 

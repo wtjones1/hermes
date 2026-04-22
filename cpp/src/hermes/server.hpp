@@ -2,6 +2,7 @@
 #define HERMES_SERVER_HPP
 
 #include <string>
+#include <vector>
 #include <zmq.h>
 #include "hermes/error.hpp"
 
@@ -19,7 +20,11 @@ public:
   virtual void serve_once() = 0;
 protected:
   void* m_socket;
+
+  friend void poll_and_serve(std::vector<server*>& servers, int timeout_ms);
 };
+
+void poll_and_serve(std::vector<server*>& servers, int timeout_ms);
 
 } // hermes namesapce
 
