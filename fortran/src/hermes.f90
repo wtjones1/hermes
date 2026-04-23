@@ -719,6 +719,7 @@ contains
     code = zmq_bind(self%socket, a_endpoint)
 
     self%is_router = (a_type == ZMQ_ROUTER)
+
     if (self%is_router) then
       ! Initialize identity message for ROUTER
       code = zmq_msg_init(self%client_identity)
@@ -850,13 +851,16 @@ contains
 
   subroutine server_send_router_identity(self)
     class(server) :: self
+    type(zmq_msg_t) :: identity_copy
     type(zmq_msg_t) :: delimiter
     integer(kind = c_int) :: code
 
     if (.not. self%is_router) return
 
-    code = zmq_msg_copy(self%client_identity, self%client_identity)
-    code = zmq_msg_send(self%client_identity, self%socket, ZMQ_SNDMORE)
+    code = zmq_msg_init(identity_copy)
+    code = zmq_msg_copy(identity_copy, self%client_identity)
+    code = zmq_msg_send(identity_copy, self%socket, ZMQ_SNDMORE)
+    code = zmq_msg_close(identity_copy)
 
     code = zmq_msg_init_size(delimiter, 0_c_size_t)
     code = zmq_msg_send(delimiter, self%socket, ZMQ_SNDMORE)
