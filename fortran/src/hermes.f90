@@ -99,6 +99,8 @@ module hermes
       type(c_ptr), public :: socket
       type(zmq_msg_t), private :: exception
       integer(kind = c_int32_t), private :: exception_id
+      type(zmq_msg_t), private :: client_identity
+      logical, private :: is_router
     contains
       procedure, public :: open => server_open
       procedure, public :: close => server_close
@@ -107,6 +109,7 @@ module hermes
 
       procedure, private :: server_serve
       procedure, private :: server_serve_count
+      procedure, private :: get_request_router => server_get_request_router
       procedure, public :: get_request => server_get_request
       procedure, public :: outcome => server_outcome
       procedure, public :: undefined => server_undefined
@@ -710,6 +713,12 @@ contains
 
     self%socket = zmq_socket(a_context, a_type)
     code = zmq_bind(self%socket, a_endpoint)
+
+    self%is_router = (a_type == ZMQ_ROUTER)
+    if (self%is_router) then
+      ! Initialize identity message for ROUTER
+      code = zmq_msg_init(self%client_identity)
+    end if
   end function
 
   function server_close(self) result(code)
@@ -749,6 +758,33 @@ contains
     logical :: status
 
     self%exception_id = 0
+    if (self%is_router) then
+      status = self%get_request_router(header)
+    else
+      status = header%recv(self%socket)
+    end if
+  end function
+
+  function server_get_request_router(self, header) result(status)
+    class(server) :: self
+    type(request_header) :: header
+    logical :: status
+    
+    type(zmq_msg_t) :: delimiter
+    integer(kind = c_int) :: code
+    
+    ! Receive [identity][delimiter][header][payload...]
+    ! 1. Receive and store identity
+    code = zmq_msg_close(self%client_identity)
+    code = zmq_msg_init(self%client_identity)
+    code = zmq_msg_recv(self%client_identity, self%socket, 0)
+    
+    ! 2. Receive and discard delimiter
+    code = zmq_msg_init(delimiter)
+    code = zmq_msg_recv(delimiter, self%socket, 0)
+    code = zmq_msg_close(delimiter)
+    
+    ! 3. Receive header (as normal)
     status = header%recv(self%socket)
   end function
 
@@ -776,6 +812,7 @@ contains
       more = zmq_msg_more(message)
       code = zmq_msg_close(message)
     end do
+    call server_send_router_identity(self)
     status = header%send(self%socket, 0, .false.)
   end subroutine
 
@@ -803,12 +840,28 @@ contains
     status = archive%value(a_exception)
   end subroutine
 
+  subroutine server_send_router_identity(self)
+    class(server) :: self
+    type(zmq_msg_t) :: delimiter
+    integer(kind = c_int) :: code
+    
+    if (.not. self%is_router) return
+    
+    code = zmq_msg_copy(self%client_identity, self%client_identity)
+    code = zmq_msg_send(self%client_identity, self%socket, ZMQ_SNDMORE)
+    
+    code = zmq_msg_init_size(delimiter, 0_c_size_t)
+    code = zmq_msg_send(delimiter, self%socket, ZMQ_SNDMORE)
+    code = zmq_msg_close(delimiter)
+  end subroutine
+
   subroutine server_reply_with_error(self)
     class(server) :: self
 
     logical :: status
     type(reply_header) :: header
 
+    call server_send_router_identity(self)
     status = header%send(self%socket, 0, .false.)
   end subroutine
 
@@ -820,6 +873,7 @@ contains
     type(reply_header) :: header
     integer(kind = c_int) :: code
 
+    call server_send_router_identity(self)
     status = header%send(self%socket, a_number, .true.)
     code = zmq_msg_send(self%exception, self%socket, 0)
   end subroutine
@@ -840,6 +894,7 @@ contains
     call c_f_pointer(zmq_msg_data(message), buffer)
     call archive%create(buffer, a_size)
     status = archive%value(a_result)
+    call server_send_router_identity(self)
     status = header%send(self%socket, 1, .true.)
     code = zmq_msg_send(message, self%socket, 0)
   end subroutine
@@ -860,6 +915,7 @@ contains
     call c_f_pointer(zmq_msg_data(message), buffer)
     call archive%create(buffer, a_size)
     status = archive%unsigned(a_result)
+    call server_send_router_identity(self)
     status = header%send(self%socket, 1, .true.)
     code = zmq_msg_send(message, self%socket, 0)
   end subroutine
@@ -880,6 +936,7 @@ contains
     call c_f_pointer(zmq_msg_data(message), buffer)
     call archive%create(buffer, a_size)
     status = archive%character(a_result)
+    call server_send_router_identity(self)
     status = header%send(self%socket, 1, .true.)
     code = zmq_msg_send(message, self%socket, 0)
   end subroutine
@@ -900,6 +957,7 @@ contains
     call c_f_pointer(zmq_msg_data(message), buffer)
     call archive%create(buffer, a_size)
     status = archive%vector(a_result)
+    call server_send_router_identity(self)
     status = header%send(self%socket, 1, .true.)
     code = zmq_msg_send(message, self%socket, 0)
   end subroutine
@@ -920,6 +978,7 @@ contains
     call c_f_pointer(zmq_msg_data(message), buffer)
     call archive%create(buffer, a_size)
     status = archive%unsigned_vector(a_result)
+    call server_send_router_identity(self)
     status = header%send(self%socket, 1, .true.)
     code = zmq_msg_send(message, self%socket, 0)
   end subroutine
@@ -940,6 +999,7 @@ contains
     call c_f_pointer(zmq_msg_data(message), buffer)
     call archive%create(buffer, a_size)
     status = archive%character_vector(a_result)
+    call server_send_router_identity(self)
     status = header%send(self%socket, 1, .true.)
     code = zmq_msg_send(message, self%socket, 0)
   end subroutine
@@ -950,6 +1010,7 @@ contains
     logical :: status
     type(reply_header) :: header
 
+    call server_send_router_identity(self)
     status = header%send(self%socket, 1, .false.)
   end subroutine
 

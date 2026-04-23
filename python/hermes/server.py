@@ -4,6 +4,41 @@ class Server(object):
     def __init__(self, context, endpoint, type):
         self.socket = context.socket(type)
         self.socket.bind(endpoint)
+        self.socket_type = type
+        self.client_identity = None
+    
+    def is_router(self):
+        return self.socket_type == zmq.ROUTER
+    
+    def receive_identity(self):
+        if not self.is_router():
+            return
+        
+        self.client_identity = self.socket.recv()
+        delimiter = self.socket.recv()
+    
+    def send_identity(self):
+        if not self.is_router():
+            return
+        
+        self.socket.send(self.client_identity, zmq.SNDMORE)
+        self.socket.send(b'', zmq.SNDMORE)  # Empty delimiter
+    
+    def receive_request(self):
+        self.receive_identity()
+        return self.socket.recv()
+    
+    def send_reply(self, data, flags=0):
+        self.send_identity()
+        return self.socket.send(data, flags)
+    
+    def send_multipart(self, msg_parts):
+        if self.is_router():
+            # Prepend identity and delimiter
+            full_msg = [self.client_identity, b''] + msg_parts
+            return self.socket.send_multipart(full_msg)
+        else:
+            return self.socket.send_multipart(msg_parts)
 
     def close(self):
         self.socket.close()
@@ -18,7 +53,6 @@ class Server(object):
                 self.serve_once()
 
 
-# Module-level polling function
 def poll_and_serve(servers, timeout_ms=100):
     """
     Poll multiple servers and call serve_once on those with pending requests.
@@ -35,17 +69,13 @@ def poll_and_serve(servers, timeout_ms=100):
     if not servers:
         return
     
-    # Create poller
     poller = zmq.Poller()
     
-    # Register all server sockets
     for server in servers:
         poller.register(server.socket, zmq.POLLIN)
     
-    # Poll with timeout
     sockets = dict(poller.poll(timeout_ms))
     
-    # Serve requests on sockets that are ready
     for server in servers:
         if server.socket in sockets and sockets[server.socket] == zmq.POLLIN:
             server.serve_once()

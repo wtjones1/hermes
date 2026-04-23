@@ -868,6 +868,7 @@ generator::server(const state::interface& a_interface)
   m_cpp << tab << "try" << std::endl;
   m_cpp << tab << "{" << std::endl;
   m_cpp << indent;
+  m_cpp << tab << "receive_identity();" << std::endl;
   m_cpp << tab << "hermes::request_header header(m_socket);" << std::endl;
   m_cpp << tab << "switch (header.number())" << std::endl;
   m_cpp << tab << "{" << std::endl;
@@ -899,6 +900,7 @@ generator::server(const state::interface& a_interface)
   m_cpp << tab << "code = zmq_msg_close(&message);" << std::endl;
   m_cpp << unindent;
   m_cpp << tab << "}" << std::endl;
+  m_cpp << tab << "send_identity();" << std::endl;
   m_cpp << tab << "hermes::reply_header(0, false).send(m_socket);" << std::endl;
   m_cpp << unindent;
   m_cpp << tab << "}" << std::endl;
@@ -910,6 +912,7 @@ generator::server(const state::interface& a_interface)
   m_cpp << tab << "catch (std::exception& e)" << std::endl;
   m_cpp << tab << "{" << std::endl;
   m_cpp << indent;
+  m_cpp << tab << "send_identity();" << std::endl;
   m_cpp << tab << "hermes::reply_header(0, false).send(m_socket);" << std::endl;
   m_cpp << unindent;
   m_cpp << tab << "}" << std::endl;
@@ -1058,6 +1061,7 @@ generator::server_procedure(std::int32_t a_id,
   m_cpp << tab << (is_void ? "" : "result = ") << method << "(";
   arguments(m_cpp, a_procedure.parameters());
   m_cpp << ");" << std::endl;
+  m_cpp << tab << "send_identity();" << std::endl;
   m_cpp << tab << "hermes::reply_header(";
   m_cpp << result_id << ", " << (is_void ? "false" : "true");
   m_cpp << ").send(m_socket);" << std::endl;
@@ -1080,6 +1084,7 @@ generator::server_procedure(std::int32_t a_id,
     m_cpp << tab << "catch (" << ref << " " << what << ")" << std::endl;
     m_cpp << tab << "{" << std::endl;
     m_cpp << indent;
+    m_cpp << tab << "send_identity();" << std::endl;
     m_cpp << tab << "hermes::reply_header(";
     m_cpp << result_id << ", true";
     m_cpp << ").send(m_socket);" << std::endl;
