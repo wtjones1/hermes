@@ -1022,40 +1022,40 @@ contains
     status = header%send(self%socket, 1, .false.)
   end subroutine
 
-  subroutine poll_and_serve_once(servers, timeout_ms)
+  subroutine poll_and_serve_once(srvs, timeout_ms)
     !
     ! Poll multiple servers and call serve_once on those with pending requests.
     !
     ! Arguments:
-    !   servers(:)   - Array of server object pointers to poll
-    !   timeout_ms   - Timeout in milliseconds:
-    !                  -1 = block indefinitely until at least one message
-    !                   0 = return immediately (non-blocking)
-    !                  >0 = wait up to timeout_ms milliseconds
+    !   srvs(:)    - Array of server object pointers to poll
+    !   timeout_ms - Timeout in milliseconds:
+    !                -1 = block indefinitely until at least one message
+    !                 0 = return immediately (non-blocking)
+    !                >0 = wait up to timeout_ms milliseconds
     !
     ! Returns when timeout expires or after serving all ready requests.
     !
-    type(server_ptr),    dimension(:), intent(inout) :: servers
+    type(server_ptr),    dimension(:), intent(inout) :: srvs
     integer(kind=c_int),               intent(in)    :: timeout_ms
 
-    integer(kind=c_int)                              :: n_servers
+    integer(kind=c_int)                              :: n_srvs
     type(zmq_pollitem_t), dimension(:), allocatable  :: poll_items
     integer(kind=c_int)                              :: rc
     integer(kind=c_int)                              :: i
 
     ! Get number of servers from array size
-    n_servers = size(servers)
+    n_srvs = size(srvs)
 
     ! Validate input
-    if (n_servers <= 0) return
+    if (n_srvs <= 0) return
 
     ! Allocate polling items
-    allocate(poll_items(n_servers))
+    allocate(poll_items(n_srvs))
 
     ! Initialize poll items with server sockets
-    do i = 1, n_servers
-      if (associated(server(i)%ptr)) then
-        poll_items(i)%socket = server(i)%ptr%socket
+    do i = 1, n_srvs
+      if (associated(srvs(i)%ptr)) then
+        poll_items(i)%socket = srvs(i)%ptr%socket
         poll_items(i)%fd = 0
         poll_items(i)%events = ZMQ_POLLIN
         poll_items(i)%revents = 0
@@ -1066,7 +1066,7 @@ contains
     end do
 
     ! Poll all sockets
-    rc = zmq_poll(poll_items, n_servers, int(timeout_ms, c_long))
+    rc = zmq_poll(poll_items, n_srvs, int(timeout_ms, c_long))
 
     if (rc < 0) then
       ! Error occurred in polling
@@ -1081,11 +1081,11 @@ contains
     end if
 
     ! Check which servers have incoming requests and serve them
-    do i = 1, n_servers
-      if (associated(server(i)%ptr)) then
+    do i = 1, n_srvs
+      if (associated(srvs(i)%ptr)) then
         if (iand(int(poll_items(i)%revents), int(ZMQ_POLLIN)) /= 0) then
           ! This server has a request ready - serve it (won't block)
-          call server(i)%ptr%serve_once()
+          call srvs(i)%ptr%serve_once()
         end if
       end if
     end do
