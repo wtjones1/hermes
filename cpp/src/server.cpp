@@ -16,6 +16,11 @@ server::server(void* a_context, const std::string& a_endpoint, int a_type)
 
 server::~server()
 {
+  if (is_router() && !m_client_identity.empty())
+  {
+    m_client_identity.clear();
+  }
+
   if (m_socket)
   {
     zmq_close(m_socket);

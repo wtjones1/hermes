@@ -725,6 +725,10 @@ contains
     class(server) :: self
     integer(kind = c_int) :: code
 
+    if (self%is_router) then
+      code = zmq_msg_close(self%client_identity)
+    end if
+
     if (c_associated(self%socket)) then
       code = zmq_close(self%socket)
       if (code >= 0) then

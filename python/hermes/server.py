@@ -41,8 +41,12 @@ class Server(object):
             return self.socket.send_multipart(msg_parts)
 
     def close(self):
-        self.socket.close()
-        self.socket = None
+        if self.is_router():
+            self.client_identity = None
+
+        if self.socket:
+            self.socket.close()
+            self.socket = None
 
     def serve(self, count=None):
         if count is None:
