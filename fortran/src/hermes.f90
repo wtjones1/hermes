@@ -1054,8 +1054,8 @@ contains
 
     ! Initialize poll items with server sockets
     do i = 1, n_servers
-      if (associated(server_ptrs(i)%ptr)) then
-        poll_items(i)%socket = server_ptrs(i)%ptr%socket
+      if (associated(server(i)%ptr)) then
+        poll_items(i)%socket = server(i)%ptr%socket
         poll_items(i)%fd = 0
         poll_items(i)%events = ZMQ_POLLIN
         poll_items(i)%revents = 0
@@ -1082,10 +1082,10 @@ contains
 
     ! Check which servers have incoming requests and serve them
     do i = 1, n_servers
-      if (associated(server_ptrs(i)%ptr)) then
+      if (associated(server(i)%ptr)) then
         if (iand(int(poll_items(i)%revents), int(ZMQ_POLLIN)) /= 0) then
           ! This server has a request ready - serve it (won't block)
-          call server_ptrs(i)%ptr%serve_once()
+          call server(i)%ptr%serve_once()
         end if
       end if
     end do
