@@ -12,7 +12,7 @@ module hermes
   implicit none
   private
 
-  public :: poll_and_serve
+  public :: poll_and_serve_once
 
   type, abstract, public :: serializable
     contains
@@ -124,6 +124,10 @@ module hermes
       procedure, public :: reply_with_result_unsigned_vector => server_reply_with_result_unsigned_vector
       procedure, public :: reply_with_result_character_vector => server_reply_with_result_character_vector
       procedure, public :: reply_with_void => server_reply_with_void
+  end type
+
+  type, public :: server_ptr
+    class(server), pointer :: ptr => null()
   end type
 
   interface
@@ -773,21 +777,21 @@ contains
     class(server) :: self
     type(request_header) :: header
     logical :: status
-    
+
     type(zmq_msg_t) :: delimiter
     integer(kind = c_int) :: code
-    
+
     ! Receive [identity][delimiter][header][payload...]
     ! 1. Receive and store identity
     code = zmq_msg_close(self%client_identity)
     code = zmq_msg_init(self%client_identity)
     code = zmq_msg_recv(self%client_identity, self%socket, 0)
-    
+
     ! 2. Receive and discard delimiter
     code = zmq_msg_init(delimiter)
     code = zmq_msg_recv(delimiter, self%socket, 0)
     code = zmq_msg_close(delimiter)
-    
+
     ! 3. Receive header (as normal)
     status = header%recv(self%socket)
   end function
@@ -848,12 +852,12 @@ contains
     class(server) :: self
     type(zmq_msg_t) :: delimiter
     integer(kind = c_int) :: code
-    
+
     if (.not. self%is_router) return
-    
+
     code = zmq_msg_copy(self%client_identity, self%client_identity)
     code = zmq_msg_send(self%client_identity, self%socket, ZMQ_SNDMORE)
-    
+
     code = zmq_msg_init_size(delimiter, 0_c_size_t)
     code = zmq_msg_send(delimiter, self%socket, ZMQ_SNDMORE)
     code = zmq_msg_close(delimiter)
@@ -1018,12 +1022,12 @@ contains
     status = header%send(self%socket, 1, .false.)
   end subroutine
 
-  subroutine poll_and_serve(servers, n_servers, timeout_ms)
+  subroutine poll_and_serve_once(servers, timeout_ms)
     !
     ! Poll multiple servers and call serve_once on those with pending requests.
     !
     ! Arguments:
-    !   servers(:)   - Array of server objects to poll
+    !   servers(:)   - Array of server object pointers to poll
     !   timeout_ms   - Timeout in milliseconds:
     !                  -1 = block indefinitely until at least one message
     !                   0 = return immediately (non-blocking)
@@ -1031,56 +1035,63 @@ contains
     !
     ! Returns when timeout expires or after serving all ready requests.
     !
-    class(server),       dimension(:), intent(inout) :: servers
+    type(server_ptr),    dimension(:), intent(inout) :: servers
     integer(kind=c_int),               intent(in)    :: timeout_ms
-    
+
     integer(kind=c_int)                              :: n_servers
     type(zmq_pollitem_t), dimension(:), allocatable  :: poll_items
     integer(kind=c_int)                              :: rc
     integer(kind=c_int)                              :: i
-    
+
     ! Get number of servers from array size
     n_servers = size(servers)
 
     ! Validate input
     if (n_servers <= 0) return
-    
+
     ! Allocate polling items
     allocate(poll_items(n_servers))
-    
+
     ! Initialize poll items with server sockets
     do i = 1, n_servers
-      poll_items(i)%socket = servers(i)%socket
-      poll_items(i)%fd = 0
-      poll_items(i)%events = ZMQ_POLLIN
-      poll_items(i)%revents = 0
+      if (associated(server_ptrs(i)%ptr)) then
+        poll_items(i)%socket = server_ptrs(i)%ptr%socket
+        poll_items(i)%fd = 0
+        poll_items(i)%events = ZMQ_POLLIN
+        poll_items(i)%revents = 0
+      else
+        poll_items(i)%socket = c_null_ptr
+        poll_items(i)%events = 0
+      end if
     end do
-    
+
     ! Poll all sockets
     rc = zmq_poll(poll_items, n_servers, int(timeout_ms, c_long))
-    
+
     if (rc < 0) then
       ! Error occurred in polling
       deallocate(poll_items)
       return
     end if
-    
+
     if (rc == 0) then
       ! Timeout - no messages received
       deallocate(poll_items)
       return
     end if
-    
+
     ! Check which servers have incoming requests and serve them
     do i = 1, n_servers
-      if (iand(int(poll_items(i)%revents), int(ZMQ_POLLIN)) /= 0) then
-        ! This server has a request ready - serve it (won't block)
-        call servers(i)%serve_once()
+      if (associated(server_ptrs(i)%ptr)) then
+        if (iand(int(poll_items(i)%revents), int(ZMQ_POLLIN)) /= 0) then
+          ! This server has a request ready - serve it (won't block)
+          call server_ptrs(i)%ptr%serve_once()
+        end if
       end if
     end do
-    
+
     deallocate(poll_items)
-    
-  end subroutine poll_and_serve
+
+  end subroutine poll_and_serve_once
 
 end module
