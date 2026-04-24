@@ -1139,7 +1139,7 @@ generator::code_call(const std::string& a_interface,
   bool is_container = result->is_map() || result->is_set() || result->is_vector();
 
   bool is_serializable_vector = false;
-  if (result->is_vector())
+  if (result->is_vector() && !result->is_string())
   {
     auto as_vector = std::dynamic_pointer_cast<state::vector>(result);
     auto value_type = as_vector->value_type();
@@ -1356,7 +1356,7 @@ generator::server_handler(const std::string& a_interface,
   auto is_call = is_void || is_string;
 
   bool is_serializable_vector = false;
-  if (result->is_vector())
+  if (result->is_vector() && !result->is_string())
   {
     auto as_vector = std::dynamic_pointer_cast<state::vector>(result);
     auto value_type = as_vector->value_type();
