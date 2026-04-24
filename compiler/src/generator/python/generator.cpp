@@ -64,7 +64,7 @@ generator::write_structures()
   }
   for (auto ptr : m_blueprint->exceptions())
   {
-    write_structure(*ptr);
+    write_exception(*ptr);
   }
 }
 
@@ -92,6 +92,44 @@ generator::write_structure(const state::structure& a_structure)
   writer(fields);
   stringer(fields);
   m_py << unindent;
+}
+
+void
+generator::write_exception(const state::structure& a_exception)
+{
+  using std::endl;
+  using std::ostream;
+  typedef const state::field& field_t;
+
+  auto name = a_exception.name();
+  auto fields = a_exception.fields();
+  auto member = [](ostream& out, field_t f){ out << f.name(); };
+  auto args = join(fields.begin(), fields.end(), member);
+
+  m_py << tab << "class " << name << "(Exception):" << endl;
+  m_py << indent;
+  m_py << tab << "def __init__(self, " << args << "):" << endl;
+  m_py << indent;
+  
+  // Call Exception base constructor with first field (typically the message)
+  if (!fields.empty())
+  {
+    m_py << tab << "super(" << name << ", self).__init__("
+         << fields[0].name() << ")" << endl;
+  }
+  
+  for (const auto& field_ : fields)
+  {
+    m_py << tab << "self." << field_.name() << " = " << field_.name() << endl;
+  }
+  m_py << unindent;
+  m_py << endl;
+
+  reader(fields);
+  writer(fields);
+  stringer(fields);
+  m_py << unindent;
+  m_py << endl;
 }
 
 void
