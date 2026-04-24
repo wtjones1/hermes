@@ -1040,7 +1040,7 @@ contains
     code = zmq_msg_send(message, self%socket, 0)
   end subroutine
 
-  subroutine server_reply_with_result_serializable_vector(self, a_result,
+  subroutine server_reply_with_result_serializable_vector(self, a_result,      &
                                                           a_size)
     class(server) :: self
     class(serializable), dimension(:), intent(in) :: a_result
