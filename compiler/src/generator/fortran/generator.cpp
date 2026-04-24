@@ -1381,6 +1381,7 @@ generator::server_handler(const std::string& a_interface,
     if (is_serializable_vector)
     {
       m_src << tab << "integer(kind = c_int32_t) :: n" << std::endl;
+      m_src << tab << "integer(kind = c_size_t) :: element_size" << std::endl;
     }
     else if (is_container)
     {
@@ -1437,7 +1438,8 @@ generator::server_handler(const std::string& a_interface,
       m_src << tab << "result_size = 4" << std::endl;
       m_src << tab << "do n = 1, size(r)" << std::endl;
       m_src << indent;
-      m_src << tab << "result_size = result_size + " << element_type->size("r(n)") << std::endl;
+      m_src << tab << sizevar("element_size", element_type->size("r(n)"));
+      m_src << tab << "result_size = result_size + element_size" << std::endl;
       m_src << unindent;
       m_src << tab << "end do" << std::endl;
       m_src << tab << "call self%reply_with_result_serializable_vector(r, result_size)" << std::endl;
