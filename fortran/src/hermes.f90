@@ -91,6 +91,7 @@ module hermes
       procedure, public :: get_result_vector => client_get_result_vector
       procedure, public :: get_result_unsigned_vector => client_get_result_unsigned_vector
       procedure, public :: get_result_character_vector => client_get_result_character_vector
+      procedure, public :: get_result_serializable_vector => client_get_result_serializable_vector
       procedure, public :: get_exception => client_get_exception
       procedure, public :: catch_exception => client_catch_exception
   end type
@@ -123,6 +124,7 @@ module hermes
       procedure, public :: reply_with_result_vector => server_reply_with_result_vector
       procedure, public :: reply_with_result_unsigned_vector => server_reply_with_result_unsigned_vector
       procedure, public :: reply_with_result_character_vector => server_reply_with_result_character_vector
+      procedure, public :: reply_with_result_serializable_vector => server_reply_with_result_serializable_vector
       procedure, public :: reply_with_void => server_reply_with_void
   end type
 
@@ -671,6 +673,28 @@ contains
     code = zmq_msg_close(message)
   end subroutine
 
+  subroutine client_get_result_serializable_vector(self, a_result)
+    class(client) :: self
+    class(serializable), dimension(:), intent(out) :: a_result
+
+    logical :: status
+    type(iarchive) :: in
+    type(zmq_msg_t) :: message
+    integer(kind = c_int) :: code
+    integer(kind = c_int32_t) :: n, length
+
+    code = zmq_msg_init(message)
+    code = zmq_msg_recv(message, self%socket, 0)
+    call in%create(zmq_msg_data(message), zmq_msg_size(message))
+
+    status = in%value(length)
+    do n = 1, length
+      status = status .and. a_result(n)%read(in)
+    end do
+
+    code = zmq_msg_close(message)
+  end subroutine
+
   subroutine client_get_exception(self)
     class(client) :: self
 
@@ -1011,6 +1035,35 @@ contains
     call c_f_pointer(zmq_msg_data(message), buffer)
     call archive%create(buffer, a_size)
     status = archive%character_vector(a_result)
+    call server_send_router_identity(self)
+    status = header%send(self%socket, 1, .true.)
+    code = zmq_msg_send(message, self%socket, 0)
+  end subroutine
+
+  subroutine server_reply_with_result_serializable_vector(self, a_result,
+                                                          a_size)
+    class(server) :: self
+    class(serializable), dimension(:), intent(in) :: a_result
+    integer(kind = c_size_t), intent(in) :: a_size
+
+    logical :: status
+    type(oarchive) :: archive
+    type(zmq_msg_t) :: message
+    type(reply_header) :: header
+    integer(kind = c_int) :: code
+    integer(kind = c_int32_t) :: n, length
+    character(kind = c_char, len = :), pointer :: buffer
+
+    length = size(a_result)
+    code = zmq_msg_init_size(message, a_size)
+    call c_f_pointer(zmq_msg_data(message), buffer)
+    call archive%create(buffer, a_size)
+
+    status = archive%value(length)
+    do n = 1, length
+      status = status .and. a_result(n)%write(archive)
+    end do
+
     call server_send_router_identity(self)
     status = header%send(self%socket, 1, .true.)
     code = zmq_msg_send(message, self%socket, 0)

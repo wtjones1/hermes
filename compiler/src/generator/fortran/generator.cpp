@@ -932,7 +932,7 @@ void
 generator::reader(std::shared_ptr<state::structure> a_structure)
 {
   std::string name = a_structure->name();
-  
+
   // Check if any field is a vector (needs length and loop variable)
   bool has_vector = false;
   for (const auto& field : a_structure->fields())
@@ -1008,7 +1008,7 @@ generator::archive(const std::string& a_name,
                    bool a_first)
 {
   auto var = "self%" + member(a_name);
-  
+
   // Check if this is a vector being read
   if (a_input && a_type->is_vector())
   {
@@ -1016,14 +1016,14 @@ generator::archive(const std::string& a_name,
     auto as_vector = std::dynamic_pointer_cast<state::vector>(a_type);
     auto value_type = as_vector->value_type();
     std::string element_method;
-    
+
     if (value_type->is_char())
       element_method = "character";
     else if (value_type->is_unsigned())
       element_method = "unsigned";
     else
       element_method = "value";
-    
+
     if (a_first)
     {
       m_src << tab << "status = a_archive%length(length)" << std::endl;
@@ -1137,6 +1137,15 @@ generator::code_call(const std::string& a_interface,
   bool is_void = result->is_void();
   bool is_string = result->is_string();
   bool is_container = result->is_map() || result->is_set() || result->is_vector();
+
+  bool is_serializable_vector = false;
+  if (result->is_vector())
+  {
+    auto as_vector = std::dynamic_pointer_cast<state::vector>(result);
+    auto value_type = as_vector->value_type();
+    is_serializable_vector = (value_type->is_structure() || value_type->is_exception());
+  }
+
   auto func_name = a_interface + "_client_" + name + "_code";
 
   auto sep = [&](){ if (!first) return ", "; first = false; return ""; };
@@ -1172,7 +1181,11 @@ generator::code_call(const std::string& a_interface,
 
   m_src << tab << "logical :: status" << std::endl;
   m_src << tab << "type(reply_header) :: header" << std::endl;
-  if (is_container)
+
+  if (is_serializable_vector)
+  {
+  }
+  else if (is_container)
   {
     m_src << tab << "class(*), dimension(:), pointer :: ptr" << std::endl;
   }
@@ -1191,7 +1204,12 @@ generator::code_call(const std::string& a_interface,
   m_src << tab << "case (1)" << std::endl;
   m_src << indent;
   m_src << tab << "code = 0" << std::endl;
-  if (is_string)
+
+  if (is_serializable_vector)
+  {
+    m_src << tab << "call self%get_result_serializable_vector(r)" << std::endl;
+  }
+  else if (is_string)
   {
     m_src << tab << "call self%get_result_string(r)" << std::endl;
   }
@@ -1337,6 +1355,14 @@ generator::server_handler(const std::string& a_interface,
   auto is_container = result->is_map() || result->is_set() || result->is_vector();
   auto is_call = is_void || is_string;
 
+  bool is_serializable_vector = false;
+  if (result->is_vector())
+  {
+    auto as_vector = std::dynamic_pointer_cast<state::vector>(result);
+    auto value_type = as_vector->value_type();
+    is_serializable_vector = (value_type->is_structure() || value_type->is_exception());
+  }
+
   auto sep = [&](){ if (!first) return ", "; first = false; return ""; };
   auto args = [&](const field& f){ m_src << sep() << param(f.name()); };
 
@@ -1351,7 +1377,12 @@ generator::server_handler(const std::string& a_interface,
   {
     m_src << tab << "integer(kind = c_size_t) :: result_size" << std::endl;
     m_src << tab << result_type->target() << " :: r" << std::endl;
-    if (is_container)
+
+    if (is_serializable_vector)
+    {
+      m_src << tab << "integer(kind = c_int32_t) :: n" << std::endl;
+    }
+    else if (is_container)
     {
       m_src << tab << "class(*), dimension(:), pointer :: ptr" << std::endl;
     }
@@ -1398,10 +1429,19 @@ generator::server_handler(const std::string& a_interface,
   }
   else
   {
-    m_src << tab << sizevar("result_size", get_size("r", result_type));
-    m_src << tab << "ptr => r" << std::endl;
-    m_src << tab << "call self%reply_with_result_";
-    m_src << category(result, false) << "(ptr, result_size)" << std::endl;
+    if (is_serializable_vector)
+    {
+      m_src << tab << sizevar("result_size", get_size("r(1)", result_type));
+      m_src << tab << "result_size = 4 + size(r) * result_size" << std::endl;
+      m_src << tab << "call self%reply_with_result_serializable_vector(r, result_size)" << std::endl;
+    }
+    else
+    {
+      m_src << tab << sizevar("result_size", get_size("r", result_type));
+      m_src << tab << "ptr => r" << std::endl;
+      m_src << tab << "call self%reply_with_result_";
+      m_src << category(result, false) << "(ptr, result_size)" << std::endl;
+    }
   }
   m_src << unindent << unindent << tab << "end select" << std::endl;
   for (const auto& f : params)
