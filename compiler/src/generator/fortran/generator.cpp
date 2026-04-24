@@ -1431,8 +1431,15 @@ generator::server_handler(const std::string& a_interface,
   {
     if (is_serializable_vector)
     {
-      m_src << tab << sizevar("result_size", get_size("r(1)", result_type));
-      m_src << tab << "result_size = 4 + size(r) * result_size" << std::endl;
+      auto as_vector = std::dynamic_pointer_cast<state::vector>(result);
+      auto element_type = translate(as_vector->value_type());
+
+      m_src << tab << "result_size = 4" << std::endl;
+      m_src << tab << "do n = 1, size(r)" << std::endl;
+      m_src << indent;
+      m_src << tab << "result_size = result_size + " << element_type->size("r(n)") << std::endl;
+      m_src << unindent;
+      m_src << tab << "end do" << std::endl;
       m_src << tab << "call self%reply_with_result_serializable_vector(r, result_size)" << std::endl;
     }
     else
