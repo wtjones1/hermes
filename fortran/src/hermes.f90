@@ -1092,7 +1092,7 @@ contains
     !
     ! Returns when timeout expires or after serving all ready requests.
     !
-    type(server_ptr),    dimension(:), intent(inout) :: srvs
+    type(server_ptr),    dimension(:), intent(in)    :: srvs
     integer(kind=c_int),               intent(in)    :: timeout_ms
 
     integer(kind=c_int)                              :: n_srvs
