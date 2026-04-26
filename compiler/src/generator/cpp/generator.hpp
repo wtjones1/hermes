@@ -36,6 +36,8 @@ protected:
   void write_constants();
   void write_interfaces();
   void write_footer();
+  void write_stubs();
+  void write_stub(const state::interface& a_interface);
 
   void write_enumeration(const state::enumeration& a_enumeration);
   void write_alias(const state::alias& a_alias);
@@ -88,6 +90,10 @@ protected:
                         const state::procedure& a_procedure);
   void server_procedure(std::int32_t a_id,
                         const state::procedure& a_procedure);
+  void stub_procedure(std::ofstream& out,
+                      const std::string& a_interface_name,
+                      const state::procedure& a_procedure,
+                      bool is_first);
   void rpc_procedure(const std::string& a_interface,
                      std::int32_t a_id,
                      const state::procedure& a_procedure);
@@ -107,6 +113,8 @@ private:
   std::string m_directory;
   std::ofstream m_hpp;
   std::ofstream m_cpp;
+  std::string m_stub_path;
+  std::ofstream m_stub;
   const state::blueprint* m_blueprint;
 };
 

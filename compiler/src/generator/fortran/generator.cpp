@@ -18,6 +18,10 @@ generator::open(const std::string& a_project, const std::string& a_directory)
   m_src_path = a_directory + "/" + a_project + ".f90";
   m_src.open(m_src_path);
   m_src << tabsize(2);
+
+  m_stub_path = a_directory + "/" + a_project + "_stubs.f90";
+  m_stub.open(m_stub_path);
+  m_stub << tabsize(2);
 }
 
 void
@@ -35,6 +39,7 @@ generator::write(const state::blueprint& a_blueprint)
   write_client_methods();
   write_server_methods();
   write_footer();
+  write_stubs();
   m_blueprint = nullptr;
 }
 
@@ -44,6 +49,8 @@ generator::close()
   m_project.clear();
   m_src_path.clear();
   m_src.close();
+  m_stub_path.clear();
+  m_stub.close();
 }
 
 void
@@ -164,6 +171,82 @@ void
 generator::write_footer()
 {
   m_src << unindent << tab << "end module" << std::endl;
+}
+
+void
+generator::write_stubs()
+{
+  using namespace std::placeholders;
+  auto ifaces = m_blueprint->interfaces();
+  auto write_interface = std::bind(&generator::write_stub, this, _1);
+
+  std::for_each(ifaces.begin(), ifaces.end(), write_interface);
+}
+
+void
+generator::write_stub(const state::interface& a_interface)
+{
+  using state::procedure;
+  using namespace std::placeholders;
+
+  auto name = a_interface.name();
+  auto procedures = a_interface.procedures();
+  auto exceptions = a_interface.exceptions();
+  auto imports = gather_stub_imports(a_interface);
+
+  // Module header
+  m_stub << tab << "module " << name << "_stub" << std::endl;
+  m_stub << indent;
+
+  // Use statements
+  m_stub << tab << "use " << m_project << ", only : ";
+  m_stub << name << "_server";
+
+  // Add exceptions to imports
+  for (auto e : exceptions)
+  {
+    m_stub << ", &" << std::endl;
+    m_stub << tab << "                       " << e->name();
+  }
+
+  // Add structure types to imports
+  for (const auto& import : imports)
+  {
+    m_stub << ", &" << std::endl;
+    m_stub << tab << "                       " << import;
+  }
+
+  m_stub << std::endl;
+  m_stub << tab << "use, intrinsic :: iso_c_binding, only : c_ptr, c_null_ptr";
+  m_stub << std::endl << std::endl;
+
+  m_stub << tab << "implicit none" << std::endl << std::endl;
+  m_stub << tab << "private" << std::endl << std::endl;
+
+  // Server type definition
+  m_stub << tab << "type, public, extends(" << name << "_server) :: server_t";
+  m_stub << std::endl << indent << tab << "contains" << std::endl << indent;
+
+  for (const auto& proc : procedures)
+  {
+    m_stub << tab << "procedure, public :: " << proc.name() << std::endl;
+  }
+
+  m_stub << unindent << unindent << tab << "end type" << std::endl << std::endl;
+
+  // Contains section
+  m_stub << unindent << "contains" << std::endl << std::endl << indent;
+
+  // Comment header
+  m_stub << tab << "!-----------------------------  INTERFACE -----------------------------------";
+  m_stub << std::endl << std::endl;
+
+  // Generate stub procedures
+  auto write_proc = std::bind(&generator::stub_procedure, this, name, _1);
+  std::for_each(procedures.begin(), procedures.end(), write_proc);
+
+  // Module footer
+  m_stub << unindent << "end module " << name << "_stub" << std::endl;
 }
 
 void
@@ -524,6 +607,291 @@ generator::server_methods(const state::interface& a_interface)
   std::for_each(excepts.begin(), excepts.end(), write_thrower);
   server_throw_error(a_interface);
   server_serve_once(a_interface);
+}
+
+void
+generator::stub_procedure(const std::string& a_interface,
+                          const state::procedure& a_procedure)
+{
+  using state::field;
+
+  pointer type;
+  auto name = a_procedure.name();
+  auto result = a_procedure.result();
+  auto params = a_procedure.parameters();
+  auto exceptions = a_procedure.exceptions();
+  auto is_void = result->is_void();
+  auto result_type = translate(result);
+
+  bool result_is_serializable = false;
+  bool result_is_serializable_vector = false;
+  if (!is_void)
+  {
+    if (result->is_structure() || result->is_exception())
+    {
+      result_is_serializable = true;
+    }
+    else if (result->is_vector() && !result->is_string())
+    {
+      auto as_vector = std::dynamic_pointer_cast<state::vector>(result);
+      auto value_type = as_vector->value_type();
+      if (value_type->is_structure() || value_type->is_exception())
+      {
+        result_is_serializable_vector = true;
+      }
+    }
+  }
+
+  auto check_type = [&](std::shared_ptr<state::datatype> dt) -> std::string {
+    if (dt->is_alias())
+    {
+      auto as_alias = std::dynamic_pointer_cast<state::alias>(dt);
+      dt = as_alias->root_type();
+    }
+
+    if (dt->is_int32()) return "c_int32_t";
+    if (dt->is_int64()) return "c_int64_t";
+    if (dt->is_int16()) return "c_int16_t";
+    if (dt->is_int8()) return "c_int8_t";
+    if (dt->is_uint32()) return "c_int32_t";
+    if (dt->is_uint64()) return "c_int64_t";
+    if (dt->is_uint16()) return "c_int16_t";
+    if (dt->is_uint8()) return "c_int8_t";
+    if (dt->is_real32()) return "c_float";
+    if (dt->is_real64()) return "c_double";
+    if (dt->is_bool()) return "c_bool";
+    if (dt->is_char()) return "c_char";
+    if (dt->is_string()) return "c_char";
+
+    return "";
+  };
+
+  std::set<std::string> c_types;
+
+  for (const auto& p : params)
+  {
+    std::string c_type = check_type(p.type());
+    if (!c_type.empty())
+    {
+      c_types.insert(c_type);
+    }
+
+    if (p.type()->is_vector())
+    {
+      auto as_vector = std::dynamic_pointer_cast<state::vector>(p.type());
+      auto value_type = as_vector->value_type();
+      c_type = check_type(value_type);
+      if (!c_type.empty())
+      {
+        c_types.insert(c_type);
+      }
+    }
+  }
+
+  if (!is_void)
+  {
+    std::string c_type = check_type(result);
+    if (!c_type.empty())
+    {
+      c_types.insert(c_type);
+    }
+
+    if (result->is_vector() && !result->is_string())
+    {
+      auto as_vector = std::dynamic_pointer_cast<state::vector>(result);
+      auto value_type = as_vector->value_type();
+      c_type = check_type(value_type);
+      if (!c_type.empty())
+      {
+        c_types.insert(c_type);
+      }
+    }
+  }
+
+  if (is_void)
+  {
+    m_stub << tab << "subroutine " << name << "(self";
+  }
+  else
+  {
+    m_stub << tab << "function " << name << "(self";
+  }
+
+  for (const auto& p : params)
+  {
+    m_stub << ", " << param(p.name());
+  }
+
+  if (!is_void)
+  {
+    m_stub << ") result(r)";
+  }
+  else
+  {
+    m_stub << ")";
+  }
+  m_stub << std::endl;
+
+  if (!c_types.empty())
+  {
+    m_stub << tab << "use, intrinsic :: iso_c_binding, only : ";
+    bool first = true;
+    for (const auto& ct : c_types)
+    {
+      if (!first) m_stub << ", ";
+      m_stub << ct;
+      first = false;
+    }
+    m_stub << std::endl;
+  }
+
+  m_stub << indent;
+
+  m_stub << tab << "class(server_t)                                      :: self";
+  m_stub << std::endl;
+
+  for (const auto& p : params)
+  {
+    type = translate(p.type());
+
+    bool param_is_serializable_vector = false;
+    if (p.type()->is_vector() && !p.type()->is_string())
+    {
+      auto as_vector = std::dynamic_pointer_cast<state::vector>(p.type());
+      auto value_type = as_vector->value_type();
+      if (value_type->is_structure() || value_type->is_exception())
+      {
+        param_is_serializable_vector = true;
+      }
+    }
+
+    std::string param_decl;
+    if (param_is_serializable_vector)
+    {
+      auto as_vector = std::dynamic_pointer_cast<state::vector>(p.type());
+      auto value_type = as_vector->value_type();
+      param_decl = "type(" + value_type->name() + "), dimension(:)";
+    }
+    else if (p.type()->is_structure() || p.type()->is_exception())
+    {
+      param_decl = "type(" + p.type()->name() + ")";
+    }
+    else
+    {
+      param_decl = type->in();
+    }
+
+    m_stub << tab << std::left << std::setw(45) << param_decl;
+    m_stub << ", intent(in)  :: " << param(p.name());
+    m_stub << std::endl;
+  }
+
+  if (!is_void)
+  {
+    type = translate(result);
+
+    if (result_is_serializable)
+    {
+      std::string result_decl = "type(" + result->name() + ")";
+      m_stub << tab << std::left << std::setw(45) << result_decl;
+      m_stub << "                                    :: r";
+    }
+    else if (result_is_serializable_vector)
+    {
+      auto as_vector = std::dynamic_pointer_cast<state::vector>(result);
+      auto value_type = as_vector->value_type();
+      std::string element_type_name = "type(" + value_type->name() + ")";
+
+      m_stub << tab << std::left << std::setw(45) << element_type_name;
+      m_stub << ", dimension(:), allocatable          :: r";
+    }
+    else if (result->is_vector() && !result->is_string())
+    {
+      auto as_vector = std::dynamic_pointer_cast<state::vector>(result);
+      auto value_type = as_vector->value_type();
+      pointer element_type = translate(value_type);
+      std::string element_decl = element_type->in();
+
+      m_stub << tab << std::left << std::setw(45) << element_decl;
+      m_stub << ", dimension(:), allocatable          :: r";
+    }
+    else
+    {
+      std::string result_decl = type->in();
+      m_stub << tab << std::left << std::setw(45) << result_decl;
+      m_stub << "                                    :: r";
+    }
+    m_stub << std::endl;
+  }
+
+  m_stub << std::endl;
+  m_stub << "continue" << std::endl << std::endl;
+
+  m_stub << unindent << tab;
+  if (is_void)
+  {
+    m_stub << "end subroutine " << name;
+  }
+  else
+  {
+    m_stub << "end function " << name;
+  }
+  m_stub << std::endl << std::endl;
+}
+
+std::set<std::string>
+generator::gather_stub_imports(const state::interface& a_interface)
+{
+  std::set<std::string> imports;
+
+  for (const auto& proc : a_interface.procedures())
+  {
+    for (const auto& param : proc.parameters())
+    {
+      if (param.type()->is_structure() || param.type()->is_exception())
+      {
+        imports.insert(param.type()->name());
+      }
+      else if (param.type()->is_vector())
+      {
+        auto vec = std::dynamic_pointer_cast<state::vector>(param.type());
+        auto val_type = vec->value_type();
+        if (val_type->is_structure() || val_type->is_exception())
+        {
+          imports.insert(val_type->name());
+        }
+      }
+      else if (param.type()->is_map())
+      {
+        auto map = std::dynamic_pointer_cast<state::map>(param.type());
+        if (map->key_type()->is_structure() || map->key_type()->is_exception())
+        {
+          imports.insert(map->key_type()->name());
+        }
+        if (map->value_type()->is_structure() || map->value_type()->is_exception())
+        {
+          imports.insert(map->value_type()->name());
+        }
+      }
+    }
+
+    auto result = proc.result();
+    if (result->is_structure() || result->is_exception())
+    {
+      imports.insert(result->name());
+    }
+    else if (result->is_vector())
+    {
+      auto vec = std::dynamic_pointer_cast<state::vector>(result);
+      auto val_type = vec->value_type();
+      if (val_type->is_structure() || val_type->is_exception())
+      {
+        imports.insert(val_type->name());
+      }
+    }
+  }
+
+  return imports;
 }
 
 std::string

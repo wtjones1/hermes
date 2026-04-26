@@ -32,6 +32,9 @@ protected:
   void write_structures();
   void write_interfaces();
 
+  void write_stubs();
+  void write_stub(const state::interface& a_interface);
+
   void write_structure(const state::structure& a_structure);
   void write_exception(const state::structure& a_exception);
   void write_interface(const state::interface& a_interface);
@@ -52,7 +55,9 @@ protected:
 private:
   std::string m_project;
   std::string m_py_path;
+  std::ofstream m_stub;
   std::ofstream m_py;
+  std::string m_stub_path;
   const state::blueprint* m_blueprint;
 };
 
