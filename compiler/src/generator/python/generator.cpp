@@ -64,7 +64,7 @@ generator::write_structures()
   }
   for (auto ptr : m_blueprint->exceptions())
   {
-    write_structure(*ptr);
+    write_exception(*ptr);
   }
 }
 
@@ -92,6 +92,44 @@ generator::write_structure(const state::structure& a_structure)
   writer(fields);
   stringer(fields);
   m_py << unindent;
+}
+
+void
+generator::write_exception(const state::structure& a_exception)
+{
+  using std::endl;
+  using std::ostream;
+  typedef const state::field& field_t;
+
+  auto name = a_exception.name();
+  auto fields = a_exception.fields();
+  auto member = [](ostream& out, field_t f){ out << f.name(); };
+  auto args = join(fields.begin(), fields.end(), member);
+
+  m_py << tab << "class " << name << "(Exception):" << endl;
+  m_py << indent;
+  m_py << tab << "def __init__(self, " << args << "):" << endl;
+  m_py << indent;
+  
+  // Call Exception base constructor with first field (typically the message)
+  if (!fields.empty())
+  {
+    m_py << tab << "super(" << name << ", self).__init__("
+         << fields[0].name() << ")" << endl;
+  }
+  
+  for (const auto& field_ : fields)
+  {
+    m_py << tab << "self." << field_.name() << " = " << field_.name() << endl;
+  }
+  m_py << unindent;
+  m_py << endl;
+
+  reader(fields);
+  writer(fields);
+  stringer(fields);
+  m_py << unindent;
+  m_py << endl;
 }
 
 void
@@ -240,6 +278,7 @@ generator::server(const state::interface& a_interface)
   m_py << indent;
   m_py << tab << "try:" << endl;
   m_py << indent;
+  m_py << tab << "self.receive_identity()" << endl;
   m_py << tab << "header = hermes.RequestHeader.recv(self.socket)" << endl;
   for (const auto& procedure_ : a_interface.procedures())
   {
@@ -248,11 +287,13 @@ generator::server(const state::interface& a_interface)
   }
   m_py << tab << "else:" << endl;
   m_py << indent;
+  m_py << tab << "self.send_identity()" << endl;
   m_py << tab << "raise hermes.HermesError('" << error_message << "')" << endl;
   m_py << unindent;
   m_py << unindent;
   m_py << tab << "except:" << endl;
   m_py << indent;
+  m_py << tab << "self.send_identity()" << endl;
   m_py << tab << "hermes.ReplyHeader.create(0x00, False).send(self.socket)" << endl;
   m_py << unindent;
   m_py << unindent;
@@ -384,6 +425,7 @@ generator::server_method(const state::procedure& a_procedure, int a_id)
 
   if (!is_void)
   {
+    m_py << tab << "self.send_identity()" << endl;
     m_py << tab << "hermes.ReplyHeader.create(0x01, True).send(self.socket)" << endl;
     m_py << tab << "buffer = bytearray()" << endl;
     translate(result)->pack(m_py, "result");
@@ -391,6 +433,7 @@ generator::server_method(const state::procedure& a_procedure, int a_id)
   }
   else
   {
+    m_py << tab << "self.send_identity()" << endl;
     m_py << tab << "hermes.ReplyHeader.create(0x01, False).send(self.socket)" << endl;
   }
 
@@ -406,6 +449,7 @@ generator::server_method(const state::procedure& a_procedure, int a_id)
 
     m_py << tab << "except " << type->name() << " as err:" << endl;
     m_py << indent;
+    m_py << tab << "self.send_identity()" << endl;
     m_py << tab << "hermes.ReplyHeader.create(" << to_hex(reply_id) << ", True).send(self.socket)" << endl;
     m_py << tab << "buffer = bytearray()" << endl;
     type->pack(m_py, "err");

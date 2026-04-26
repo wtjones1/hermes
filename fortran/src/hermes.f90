@@ -12,6 +12,8 @@ module hermes
   implicit none
   private
 
+  public :: poll_and_serve_once
+
   type, abstract, public :: serializable
     contains
       procedure(serializable_read), public, deferred :: read
@@ -89,6 +91,7 @@ module hermes
       procedure, public :: get_result_vector => client_get_result_vector
       procedure, public :: get_result_unsigned_vector => client_get_result_unsigned_vector
       procedure, public :: get_result_character_vector => client_get_result_character_vector
+      procedure, public :: get_result_serializable_vector => client_get_result_serializable_vector
       procedure, public :: get_exception => client_get_exception
       procedure, public :: catch_exception => client_catch_exception
   end type
@@ -97,6 +100,8 @@ module hermes
       type(c_ptr), public :: socket
       type(zmq_msg_t), private :: exception
       integer(kind = c_int32_t), private :: exception_id
+      type(zmq_msg_t), private :: client_identity
+      logical, private :: is_router
     contains
       procedure, public :: open => server_open
       procedure, public :: close => server_close
@@ -105,6 +110,7 @@ module hermes
 
       procedure, private :: server_serve
       procedure, private :: server_serve_count
+      procedure, private :: get_request_router => server_get_request_router
       procedure, public :: get_request => server_get_request
       procedure, public :: outcome => server_outcome
       procedure, public :: undefined => server_undefined
@@ -118,7 +124,12 @@ module hermes
       procedure, public :: reply_with_result_vector => server_reply_with_result_vector
       procedure, public :: reply_with_result_unsigned_vector => server_reply_with_result_unsigned_vector
       procedure, public :: reply_with_result_character_vector => server_reply_with_result_character_vector
+      procedure, public :: reply_with_result_serializable_vector => server_reply_with_result_serializable_vector
       procedure, public :: reply_with_void => server_reply_with_void
+  end type
+
+  type, public :: server_ptr
+    class(server), pointer :: ptr => null()
   end type
 
   interface
@@ -662,6 +673,28 @@ contains
     code = zmq_msg_close(message)
   end subroutine
 
+  subroutine client_get_result_serializable_vector(self, a_result)
+    class(client) :: self
+    class(serializable), dimension(:), intent(out) :: a_result
+
+    logical :: status
+    type(iarchive) :: in
+    type(zmq_msg_t) :: message
+    integer(kind = c_int) :: code
+    integer(kind = c_int32_t) :: n, length
+
+    code = zmq_msg_init(message)
+    code = zmq_msg_recv(message, self%socket, 0)
+    call in%create(zmq_msg_data(message), zmq_msg_size(message))
+
+    status = in%value(length)
+    do n = 1, length
+      status = status .and. a_result(n)%read(in)
+    end do
+
+    code = zmq_msg_close(message)
+  end subroutine
+
   subroutine client_get_exception(self)
     class(client) :: self
 
@@ -708,11 +741,22 @@ contains
 
     self%socket = zmq_socket(a_context, a_type)
     code = zmq_bind(self%socket, a_endpoint)
+
+    self%is_router = (a_type == ZMQ_ROUTER)
+
+    if (self%is_router) then
+      ! Initialize identity message for ROUTER
+      code = zmq_msg_init(self%client_identity)
+    end if
   end function
 
   function server_close(self) result(code)
     class(server) :: self
     integer(kind = c_int) :: code
+
+    if (self%is_router) then
+      code = zmq_msg_close(self%client_identity)
+    end if
 
     if (c_associated(self%socket)) then
       code = zmq_close(self%socket)
@@ -747,6 +791,33 @@ contains
     logical :: status
 
     self%exception_id = 0
+    if (self%is_router) then
+      status = self%get_request_router(header)
+    else
+      status = header%recv(self%socket)
+    end if
+  end function
+
+  function server_get_request_router(self, header) result(status)
+    class(server) :: self
+    type(request_header) :: header
+    logical :: status
+
+    type(zmq_msg_t) :: delimiter
+    integer(kind = c_int) :: code
+
+    ! Receive [identity][delimiter][header][payload...]
+    ! 1. Receive and store identity
+    code = zmq_msg_close(self%client_identity)
+    code = zmq_msg_init(self%client_identity)
+    code = zmq_msg_recv(self%client_identity, self%socket, 0)
+
+    ! 2. Receive and discard delimiter
+    code = zmq_msg_init(delimiter)
+    code = zmq_msg_recv(delimiter, self%socket, 0)
+    code = zmq_msg_close(delimiter)
+
+    ! 3. Receive header (as normal)
     status = header%recv(self%socket)
   end function
 
@@ -774,6 +845,7 @@ contains
       more = zmq_msg_more(message)
       code = zmq_msg_close(message)
     end do
+    call server_send_router_identity(self)
     status = header%send(self%socket, 0, .false.)
   end subroutine
 
@@ -801,12 +873,31 @@ contains
     status = archive%value(a_exception)
   end subroutine
 
+  subroutine server_send_router_identity(self)
+    class(server) :: self
+    type(zmq_msg_t) :: identity_copy
+    type(zmq_msg_t) :: delimiter
+    integer(kind = c_int) :: code
+
+    if (.not. self%is_router) return
+
+    code = zmq_msg_init(identity_copy)
+    code = zmq_msg_copy(identity_copy, self%client_identity)
+    code = zmq_msg_send(identity_copy, self%socket, ZMQ_SNDMORE)
+    code = zmq_msg_close(identity_copy)
+
+    code = zmq_msg_init_size(delimiter, 0_c_size_t)
+    code = zmq_msg_send(delimiter, self%socket, ZMQ_SNDMORE)
+    code = zmq_msg_close(delimiter)
+  end subroutine
+
   subroutine server_reply_with_error(self)
     class(server) :: self
 
     logical :: status
     type(reply_header) :: header
 
+    call server_send_router_identity(self)
     status = header%send(self%socket, 0, .false.)
   end subroutine
 
@@ -818,6 +909,7 @@ contains
     type(reply_header) :: header
     integer(kind = c_int) :: code
 
+    call server_send_router_identity(self)
     status = header%send(self%socket, a_number, .true.)
     code = zmq_msg_send(self%exception, self%socket, 0)
   end subroutine
@@ -838,6 +930,7 @@ contains
     call c_f_pointer(zmq_msg_data(message), buffer)
     call archive%create(buffer, a_size)
     status = archive%value(a_result)
+    call server_send_router_identity(self)
     status = header%send(self%socket, 1, .true.)
     code = zmq_msg_send(message, self%socket, 0)
   end subroutine
@@ -858,6 +951,7 @@ contains
     call c_f_pointer(zmq_msg_data(message), buffer)
     call archive%create(buffer, a_size)
     status = archive%unsigned(a_result)
+    call server_send_router_identity(self)
     status = header%send(self%socket, 1, .true.)
     code = zmq_msg_send(message, self%socket, 0)
   end subroutine
@@ -878,6 +972,7 @@ contains
     call c_f_pointer(zmq_msg_data(message), buffer)
     call archive%create(buffer, a_size)
     status = archive%character(a_result)
+    call server_send_router_identity(self)
     status = header%send(self%socket, 1, .true.)
     code = zmq_msg_send(message, self%socket, 0)
   end subroutine
@@ -898,6 +993,7 @@ contains
     call c_f_pointer(zmq_msg_data(message), buffer)
     call archive%create(buffer, a_size)
     status = archive%vector(a_result)
+    call server_send_router_identity(self)
     status = header%send(self%socket, 1, .true.)
     code = zmq_msg_send(message, self%socket, 0)
   end subroutine
@@ -918,6 +1014,7 @@ contains
     call c_f_pointer(zmq_msg_data(message), buffer)
     call archive%create(buffer, a_size)
     status = archive%unsigned_vector(a_result)
+    call server_send_router_identity(self)
     status = header%send(self%socket, 1, .true.)
     code = zmq_msg_send(message, self%socket, 0)
   end subroutine
@@ -938,6 +1035,36 @@ contains
     call c_f_pointer(zmq_msg_data(message), buffer)
     call archive%create(buffer, a_size)
     status = archive%character_vector(a_result)
+    call server_send_router_identity(self)
+    status = header%send(self%socket, 1, .true.)
+    code = zmq_msg_send(message, self%socket, 0)
+  end subroutine
+
+  subroutine server_reply_with_result_serializable_vector(self, a_result,      &
+                                                          a_size)
+    class(server) :: self
+    class(serializable), dimension(:), intent(in) :: a_result
+    integer(kind = c_size_t), intent(in) :: a_size
+
+    logical :: status
+    type(oarchive) :: archive
+    type(zmq_msg_t) :: message
+    type(reply_header) :: header
+    integer(kind = c_int) :: code
+    integer(kind = c_int32_t) :: n, length
+    character(kind = c_char, len = :), pointer :: buffer
+
+    length = size(a_result)
+    code = zmq_msg_init_size(message, a_size)
+    call c_f_pointer(zmq_msg_data(message), buffer)
+    call archive%create(buffer, a_size)
+
+    status = archive%value(length)
+    do n = 1, length
+      status = status .and. a_result(n)%write(archive)
+    end do
+
+    call server_send_router_identity(self)
     status = header%send(self%socket, 1, .true.)
     code = zmq_msg_send(message, self%socket, 0)
   end subroutine
@@ -948,7 +1075,80 @@ contains
     logical :: status
     type(reply_header) :: header
 
+    call server_send_router_identity(self)
     status = header%send(self%socket, 1, .false.)
   end subroutine
+
+  subroutine poll_and_serve_once(srvs, timeout_ms)
+    !
+    ! Poll multiple servers and call serve_once on those with pending requests.
+    !
+    ! Arguments:
+    !   srvs(:)    - Array of server object pointers to poll
+    !   timeout_ms - Timeout in milliseconds:
+    !                -1 = block indefinitely until at least one message
+    !                 0 = return immediately (non-blocking)
+    !                >0 = wait up to timeout_ms milliseconds
+    !
+    ! Returns when timeout expires or after serving all ready requests.
+    !
+    type(server_ptr),    dimension(:), intent(in)    :: srvs
+    integer(kind=c_int),               intent(in)    :: timeout_ms
+
+    integer(kind=c_int)                              :: n_srvs
+    type(zmq_pollitem_t), dimension(:), allocatable  :: poll_items
+    integer(kind=c_int)                              :: rc
+    integer(kind=c_int)                              :: i
+
+    ! Get number of servers from array size
+    n_srvs = size(srvs)
+
+    ! Validate input
+    if (n_srvs <= 0) return
+
+    ! Allocate polling items
+    allocate(poll_items(n_srvs))
+
+    ! Initialize poll items with server sockets
+    do i = 1, n_srvs
+      if (associated(srvs(i)%ptr)) then
+        poll_items(i)%socket = srvs(i)%ptr%socket
+        poll_items(i)%fd = 0
+        poll_items(i)%events = ZMQ_POLLIN
+        poll_items(i)%revents = 0
+      else
+        poll_items(i)%socket = c_null_ptr
+        poll_items(i)%events = 0
+      end if
+    end do
+
+    ! Poll all sockets
+    rc = zmq_poll(poll_items, n_srvs, int(timeout_ms, c_long))
+
+    if (rc < 0) then
+      ! Error occurred in polling
+      deallocate(poll_items)
+      return
+    end if
+
+    if (rc == 0) then
+      ! Timeout - no messages received
+      deallocate(poll_items)
+      return
+    end if
+
+    ! Check which servers have incoming requests and serve them
+    do i = 1, n_srvs
+      if (associated(srvs(i)%ptr)) then
+        if (iand(int(poll_items(i)%revents), int(ZMQ_POLLIN)) /= 0) then
+          ! This server has a request ready - serve it (won't block)
+          call srvs(i)%ptr%serve_once()
+        end if
+      end if
+    end do
+
+    deallocate(poll_items)
+
+  end subroutine poll_and_serve_once
 
 end module

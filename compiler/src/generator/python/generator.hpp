@@ -33,6 +33,7 @@ protected:
   void write_interfaces();
 
   void write_structure(const state::structure& a_structure);
+  void write_exception(const state::structure& a_exception);
   void write_interface(const state::interface& a_interface);
 
   void constructor(const field_vector& a_fields);
