@@ -642,57 +642,69 @@ generator::stub_procedure(const std::string& a_interface,
     }
   }
 
+  auto check_type = [&](std::shared_ptr<state::datatype> dt) -> std::string {
+    if (dt->is_alias())
+    {
+      auto as_alias = std::dynamic_pointer_cast<state::alias>(dt);
+      dt = as_alias->root_type();
+    }
+
+    if (dt->is_int32()) return "c_int32_t";
+    if (dt->is_int64()) return "c_int64_t";
+    if (dt->is_int16()) return "c_int16_t";
+    if (dt->is_int8()) return "c_int8_t";
+    if (dt->is_uint32()) return "c_int32_t";
+    if (dt->is_uint64()) return "c_int64_t";
+    if (dt->is_uint16()) return "c_int16_t";
+    if (dt->is_uint8()) return "c_int8_t";
+    if (dt->is_real32()) return "c_float";
+    if (dt->is_real64()) return "c_double";
+    if (dt->is_bool()) return "c_bool";
+    if (dt->is_char()) return "c_char";
+    if (dt->is_string()) return "c_char";
+
+    return "";
+  };
+
   std::set<std::string> c_types;
 
   for (const auto& p : params)
   {
-    if (p.type()->is_int32() ||
-        (p.type()->is_vector() &&
-         std::dynamic_pointer_cast<state::vector>(p.type())->value_type()->is_int32()))
+    std::string c_type = check_type(p.type());
+    if (!c_type.empty())
     {
-      c_types.insert("c_int32_t");
+      c_types.insert(c_type);
     }
-    else if (p.type()->is_int64() ||
-             (p.type()->is_vector() &&
-              std::dynamic_pointer_cast<state::vector>(p.type())->value_type()->is_int64()))
+
+    if (p.type()->is_vector())
     {
-      c_types.insert("c_int64_t");
+      auto as_vector = std::dynamic_pointer_cast<state::vector>(p.type());
+      auto value_type = as_vector->value_type();
+      c_type = check_type(value_type);
+      if (!c_type.empty())
+      {
+        c_types.insert(c_type);
+      }
     }
-    else if (p.type()->is_int16() ||
-             (p.type()->is_vector() &&
-              std::dynamic_pointer_cast<state::vector>(p.type())->value_type()->is_int16()))
+  }
+
+  if (!is_void)
+  {
+    std::string c_type = check_type(result);
+    if (!c_type.empty())
     {
-      c_types.insert("c_int16_t");
+      c_types.insert(c_type);
     }
-    else if (p.type()->is_int8() ||
-             (p.type()->is_vector() &&
-              std::dynamic_pointer_cast<state::vector>(p.type())->value_type()->is_int8()))
+
+    if (result->is_vector() && !result->is_string())
     {
-      c_types.insert("c_int8_t");
-    }
-    else if (p.type()->is_real32() ||
-             (p.type()->is_vector() &&
-              std::dynamic_pointer_cast<state::vector>(p.type())->value_type()->is_real32()))
-    {
-      c_types.insert("c_float");
-    }
-    else if (p.type()->is_real64() ||
-             (p.type()->is_vector() &&
-              std::dynamic_pointer_cast<state::vector>(p.type())->value_type()->is_real64()))
-    {
-      c_types.insert("c_double");
-    }
-    else if (p.type()->is_bool() ||
-             (p.type()->is_vector() &&
-              std::dynamic_pointer_cast<state::vector>(p.type())->value_type()->is_bool()))
-    {
-      c_types.insert("c_bool");
-    }
-    else if (p.type()->is_string() || p.type()->is_char() ||
-             (p.type()->is_vector() &&
-              std::dynamic_pointer_cast<state::vector>(p.type())->value_type()->is_char()))
-    {
-      c_types.insert("c_char");
+      auto as_vector = std::dynamic_pointer_cast<state::vector>(result);
+      auto value_type = as_vector->value_type();
+      c_type = check_type(value_type);
+      if (!c_type.empty())
+      {
+        c_types.insert(c_type);
+      }
     }
   }
 
@@ -741,48 +753,71 @@ generator::stub_procedure(const std::string& a_interface,
   for (const auto& p : params)
   {
     type = translate(p.type());
-    m_stub << tab << std::left << std::setw(45) << type->in();
 
-    bool is_vector = p.type()->is_vector() || p.type()->is_map() || p.type()->is_set();
-    if (is_vector)
+    bool param_is_serializable_vector = false;
+    if (p.type()->is_vector() && !p.type()->is_string())
     {
-      m_stub << ", dimension(:)";
+      auto as_vector = std::dynamic_pointer_cast<state::vector>(p.type());
+      auto value_type = as_vector->value_type();
+      if (value_type->is_structure() || value_type->is_exception())
+      {
+        param_is_serializable_vector = true;
+      }
     }
+
+    std::string param_decl;
+    if (param_is_serializable_vector)
+    {
+      auto as_vector = std::dynamic_pointer_cast<state::vector>(p.type());
+      auto value_type = as_vector->value_type();
+      param_decl = "type(" + value_type->name() + "), dimension(:)";
+    }
+    else if (p.type()->is_structure() || p.type()->is_exception())
+    {
+      param_decl = "type(" + p.type()->name() + ")";
+    }
+    else
+    {
+      param_decl = type->in();
+    }
+
+    m_stub << tab << std::left << std::setw(45) << param_decl;
     m_stub << ", intent(in)  :: " << param(p.name());
     m_stub << std::endl;
-  }
-
-  if (!exceptions.empty())
-  {
-    for (auto e : exceptions)
-    {
-      m_stub << tab << std::left << std::setw(45) << ("type(" + e->name() + ")");
-      m_stub << ",     allocatable               :: exception" << std::endl;
-    }
   }
 
   if (!is_void)
   {
     type = translate(result);
-    std::string result_decl = type->target();
 
     if (result_is_serializable)
     {
+      std::string result_decl = "type(" + result->name() + ")";
       m_stub << tab << std::left << std::setw(45) << result_decl;
-      m_stub << ",           target                    :: r";
+      m_stub << "                                    :: r";
     }
     else if (result_is_serializable_vector)
     {
-      m_stub << tab << std::left << std::setw(45) << result_decl;
-      m_stub << ", dimension(:), target               :: r";
+      auto as_vector = std::dynamic_pointer_cast<state::vector>(result);
+      auto value_type = as_vector->value_type();
+      std::string element_type_name = "type(" + value_type->name() + ")";
+
+      m_stub << tab << std::left << std::setw(45) << element_type_name;
+      m_stub << ", dimension(:), allocatable          :: r";
     }
     else if (result->is_vector() && !result->is_string())
     {
-      m_stub << tab << std::left << std::setw(45) << result_decl;
+      auto as_vector = std::dynamic_pointer_cast<state::vector>(result);
+      auto value_type = as_vector->value_type();
+      pointer element_type = translate(value_type);
+      std::string element_decl = element_type->in();
+
+      m_stub << tab << std::left << std::setw(45) << element_decl;
       m_stub << ", dimension(:), allocatable          :: r";
     }
     else
     {
+      std::string result_decl = type->in();
       m_stub << tab << std::left << std::setw(45) << result_decl;
       m_stub << "                                    :: r";
     }
