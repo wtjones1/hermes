@@ -18,6 +18,10 @@ generator::open(const std::string& a_project, const std::string& a_directory)
   m_py_path = a_directory + "/" + a_project + ".py";
   m_py.open(m_py_path);
   m_py << tabsize(4);
+
+  m_stub_path = a_directory + "/" + a_project + "_stubs.py";
+  m_stub.open(m_stub_path);
+  m_stub << tabsize(4);
 }
 
 void
@@ -27,6 +31,7 @@ generator::write(const state::blueprint& a_blueprint)
   write_header();
   write_structures();
   write_interfaces();
+  write_stubs();
   m_blueprint = nullptr;
 
   // write_enumerations();
@@ -39,6 +44,8 @@ generator::close()
   m_project.clear();
   m_py_path.clear();
   m_py.close();
+  m_stub_path.clear();
+  m_stub.close();
 }
 
 void
@@ -78,6 +85,16 @@ generator::write_interfaces()
 }
 
 void
+generator::write_stubs()
+{
+  using namespace std::placeholders;
+  auto ifaces = m_blueprint->interfaces();
+  auto write_interface = std::bind(&generator::write_stub, this, _1);
+
+  std::for_each(ifaces.begin(), ifaces.end(), write_interface);
+}
+
+void
 generator::write_structure(const state::structure& a_structure)
 {
   using std::endl;
@@ -110,14 +127,14 @@ generator::write_exception(const state::structure& a_exception)
   m_py << indent;
   m_py << tab << "def __init__(self, " << args << "):" << endl;
   m_py << indent;
-  
+
   // Call Exception base constructor with first field (typically the message)
   if (!fields.empty())
   {
     m_py << tab << "super(" << name << ", self).__init__("
          << fields[0].name() << ")" << endl;
   }
-  
+
   for (const auto& field_ : fields)
   {
     m_py << tab << "self." << field_.name() << " = " << field_.name() << endl;
@@ -140,6 +157,82 @@ generator::write_interface(const state::interface& a_interface)
   client(a_interface);
   server(a_interface);
   m_py << unindent;
+}
+
+void
+generator::write_stub(const state::interface& a_interface)
+{
+  using std::endl;
+
+  auto name = to_camel(a_interface.name());
+  auto procedures = a_interface.procedures();
+  auto exceptions = a_interface.exceptions();
+
+  m_stub << tab << "import " << m_project << endl;
+  m_stub << endl;
+
+  m_stub << tab << "class " << name << "Stub(" << m_project << ".";
+  m_stub << name << ".Server):" << endl;
+  m_stub << indent;
+
+  m_stub << tab << "def __init__(self, context, endpoint, socket_type):" << endl;
+  m_stub << indent;
+  m_stub << tab << "super().__init__(context, endpoint, socket_type)" << endl;
+  m_stub << unindent << endl;
+
+  for (const auto& proc : procedures)
+  {
+    auto method_name = proc.name();
+    auto result = proc.result();
+    auto params = proc.parameters();
+    auto is_void = result->is_void();
+
+    m_stub << tab << "def " << method_name << "(self";
+    for (const auto& p : params)
+    {
+      m_stub << ", " << p.name();
+    }
+    m_stub << "):" << endl;
+    m_stub << indent;
+
+    if (is_void)
+    {
+      m_stub << tab << "pass" << endl;
+    }
+    else
+    {
+      pointer result_type = translate(result);
+      m_stub << tab << "result = " << result_type->default_value() << endl;
+      m_stub << tab << "return result" << endl;
+      m_stub << tab << endl;
+    }
+
+    if (!exceptions.empty())
+    {
+      m_stub << tab << "# You can raise exceptions if needed:" << endl;
+      for (auto e : exceptions)
+      {
+        m_stub << tab << "# raise " << m_project << "." << e->name();
+        m_stub << "(\"Error message\", error_code)" << endl;
+      }
+    }
+
+    m_stub << unindent << endl;
+  }
+
+  m_stub << unindent << endl;
+  m_stub << "if __name__ == \"__main__\":" << endl;
+  m_stub << indent;
+  m_stub << tab << "import zmq" << endl << endl;
+  m_stub << tab << "# Create ZeroMQ context" << endl;
+  m_stub << tab << "context = zmq.Context()" << endl << endl;
+  m_stub << tab << "# Create server instance" << endl;
+  m_stub << tab << "endpoint = \"tcp://*:5555\"  # Example endpoint" << endl;
+  m_stub << tab << "socket_type = zmq.ROUTER    # Typical socket type for Hermes servers";
+  m_stub << endl << endl;
+  m_stub << tab << "server = " << name << "Stub(context, endpoint, socket_type)";
+  m_stub << endl;
+  m_stub << unindent;
 }
 
 void

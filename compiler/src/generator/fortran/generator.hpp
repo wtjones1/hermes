@@ -41,6 +41,8 @@ protected:
   void write_client_methods();
   void write_server_methods();
   void write_footer();
+  void write_stubs();
+  void write_stub(const state::interface& a_interface);
 
   void use_import(std::pair<std::string,
                   std::shared_ptr<state::blueprint>> a_import);
@@ -55,6 +57,9 @@ protected:
   void server_interface(const std::string& a_interface,
                         const state::procedure& a_procedure);
   void server_methods(const state::interface& a_interface);
+  void stub_procedure(const std::string& a_interface,
+                      const state::procedure& a_procedure);
+  std::set<std::string> gather_stub_imports(const state::interface& a_interface);
 
   std::string param(const std::string& a_variable) const;
   std::string member(const std::string& a_variable) const;
@@ -97,6 +102,8 @@ private:
   std::string m_project;
   std::string m_src_path;
   std::ofstream m_src;
+  std::string m_stub_path;
+  std::ofstream m_stub;
   const state::blueprint* m_blueprint;
 };
 

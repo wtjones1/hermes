@@ -22,6 +22,10 @@ generator::open(const std::string& a_project, const std::string& a_directory)
   m_cpp.open(m_cpp_path);
   m_hpp << tabsize(2);
   m_cpp << tabsize(2);
+
+  m_stub_path = a_directory + "/" + a_project + "_stubs.cpp";
+  m_stub.open(m_stub_path);
+  m_stub << tabsize(2);
 }
 
 void
@@ -36,6 +40,7 @@ generator::write(const state::blueprint& a_blueprint)
   write_constants();
   write_interfaces();
   write_footer();
+  write_stubs();
   m_blueprint = nullptr;
 }
 
@@ -45,8 +50,11 @@ generator::close()
   m_project.clear();
   m_hpp_path.clear();
   m_cpp_path.clear();
+  m_directory.clear();
   m_hpp.close();
   m_cpp.close();
+  m_stub_path.clear();
+  m_stub.close();
 }
 
 void
@@ -149,6 +157,84 @@ generator::write_footer()
     m_cpp << tab << "} // namespace " << *part << std::endl;
   }
   m_hpp << std::endl << "#endif // " << guard << std::endl;
+}
+
+void
+generator::write_stubs()
+{
+  using namespace std::placeholders;
+  auto ifaces = m_blueprint->interfaces();
+  auto write_interface = std::bind(&generator::write_stub, this, _1);
+
+  std::for_each(ifaces.begin(), ifaces.end(), write_interface);
+}
+
+void
+generator::write_stub(const state::interface& a_interface)
+{
+  auto name = a_interface.name();
+  auto procedures = a_interface.procedures();
+  auto parts = split_namespace();
+  std::string ns_prefix;
+
+  // Build namespace prefix
+  for (const auto& part : parts)
+  {
+    if (!ns_prefix.empty()) ns_prefix += "::";
+    ns_prefix += part;
+  }
+
+  m_stub << "#include \"" << m_project << ".hpp\"" << std::endl << std::endl;
+
+  if (!parts.empty())
+  {
+    for (const auto& part : parts)
+    {
+      m_stub << tab << "namespace " << part << " {" << std::endl;
+    }
+    m_stub << std::endl;
+  }
+
+  m_stub << "class " << name << "Stub : public ";
+  if (!ns_prefix.empty())
+  {
+    m_stub << ns_prefix << "::";
+  }
+  m_stub << name << "::server" << std::endl;
+  m_stub << "{" << std::endl;
+  m_stub << "public:" << std::endl;
+  m_stub << indent;
+
+  m_stub << tab << name << "Stub(void* a_context, const std::string& a_endpoint, int a_type)";
+  m_stub << std::endl;
+  m_stub << tab << "  : " << name << "::server(a_context, a_endpoint, a_type)";
+  m_stub << std::endl;
+  m_stub << tab << "{" << std::endl;
+  m_stub << tab << "}" << std::endl << std::endl;
+
+  m_stub << tab << "virtual ~" << name << "Stub()" << std::endl;
+  m_stub << tab << "{" << std::endl;
+  m_stub << tab << "}" << std::endl << std::endl;
+
+  bool first = true;
+  for (const auto& proc : procedures)
+  {
+    if (!first) m_stub << std::endl;
+    stub_procedure(m_stub, name, proc, first);
+    first = false;
+  }
+
+  m_stub << unindent;
+  m_stub << "};" << std::endl;
+
+  if (!parts.empty())
+  {
+    m_stub << std::endl;
+    for (auto it = parts.rbegin(); it != parts.rend(); ++it)
+    {
+      m_stub << "} // namespace " << *it << std::endl;
+    }
+  }
 }
 
 void
@@ -1096,6 +1182,46 @@ generator::server_procedure(std::int32_t a_id,
   m_cpp << tab << "}" << std::endl;
   m_cpp << tab << "break;" << std::endl;
   m_cpp << unindent;
+}
+
+void
+generator::stub_procedure(std::ofstream& out,
+                          const std::string& a_interface_name,
+                          const state::procedure& a_procedure,
+                          bool is_first)
+{
+  auto name = a_procedure.name();
+  auto result = a_procedure.result();
+  auto params = a_procedure.parameters();
+  pointer result_type = translate(result);
+
+  out << tab << "// " << name << std::endl;
+
+  out << tab << "virtual " << result_type->value_type() << " ";
+  out << name << "(";
+
+  bool first_param = true;
+  for (const auto& p : params)
+  {
+    if (!first_param) out << ", ";
+    pointer param_type = translate(p.type());
+    out << param_type->param_type() << " " << param(p.name());
+    first_param = false;
+  }
+
+  out << ") override" << std::endl;
+  out << tab << "{" << std::endl;
+  out << indent;
+
+  if (!result->is_void())
+  {
+    out << tab << result_type->value_type() << " result;" << std::endl;
+    out << tab << std::endl;
+    out << tab << "return result;" << std::endl;
+  }
+
+  out << unindent;
+  out << tab << "}" << std::endl;
 }
 
 void
