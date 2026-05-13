@@ -42,6 +42,9 @@ basic::unpack(std::ostream& a_out, const std::string& a_variable) const
   else if (m_type == "double") { format = ">d"; size = 8; }
   
   a_out << tab << a_variable << " = struct.unpack_from('" << format << "', data, position)[0]" << std::endl;
+  if (m_type == "bool") {
+    a_out << tab << a_variable << " = bool(" << a_variable << ")" << std::endl;
+  }
   a_out << tab << "position += " << size << std::endl;
 }
 
