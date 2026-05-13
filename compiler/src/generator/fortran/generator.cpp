@@ -1720,6 +1720,7 @@ generator::server_handler(const std::string& a_interface,
   auto first = true;
   auto is_void = result->is_void();
   auto is_string = result->is_string();
+  auto is_bool = result->is_bool();
   auto is_container = result->is_map() || result->is_set() || result->is_vector();
   auto is_call = is_void || is_string;
 
@@ -1744,7 +1745,15 @@ generator::server_handler(const std::string& a_interface,
   if (!is_void)
   {
     m_src << tab << "integer(kind = c_size_t) :: result_size" << std::endl;
-    m_src << tab << result_type->target() << " :: r" << std::endl;
+    if (is_bool)
+    {
+      m_src << tab << "logical(kind = c_bool) :: r" << std::endl;
+      m_src << tab << "logical, target :: r_f" << std::endl;
+    }
+    else
+    {
+      m_src << tab << result_type->target() << " :: r" << std::endl;
+    }
 
     if (is_serializable_vector)
     {
@@ -1814,10 +1823,19 @@ generator::server_handler(const std::string& a_interface,
     }
     else
     {
-      m_src << tab << sizevar("result_size", get_size("r", result_type));
-      m_src << tab << "ptr => r" << std::endl;
-      m_src << tab << "call self%reply_with_result_";
-      m_src << category(result, false) << "(ptr, result_size)" << std::endl;
+      if (is_bool)
+      {
+        m_src << tab << "r_f = logical(r)" << std::endl;
+        m_src << tab << "result_size = 4" << std::endl;
+        m_src << tab << "ptr => r_f" << std::endl;
+      }
+      else
+      {
+        m_src << tab << sizevar("result_size", get_size("r", result_type));
+        m_src << tab << "ptr => r" << std::endl;
+        m_src << tab << "call self%reply_with_result_";
+        m_src << category(result, false) << "(ptr, result_size)" << std::endl;
+      }
     }
   }
   m_src << unindent << unindent << tab << "end select" << std::endl;
