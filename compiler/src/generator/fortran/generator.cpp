@@ -1833,9 +1833,9 @@ generator::server_handler(const std::string& a_interface,
       {
         m_src << tab << sizevar("result_size", get_size("r", result_type));
         m_src << tab << "ptr => r" << std::endl;
-        m_src << tab << "call self%reply_with_result_";
-        m_src << category(result, false) << "(ptr, result_size)" << std::endl;
       }
+      m_src << tab << "call self%reply_with_result_";
+      m_src << category(result, false) << "(ptr, result_size)" << std::endl;
     }
   }
   m_src << unindent << unindent << tab << "end select" << std::endl;
