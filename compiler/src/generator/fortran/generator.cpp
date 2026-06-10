@@ -1649,6 +1649,13 @@ generator::client_request(const std::string& a_interface,
     m_src << tab << "integer(kind = c_size_t) :: archive_size" << std::endl;
     m_src << tab << "character(kind = c_char, len = :), pointer :: buffer" << std::endl;
     m_src << tab << "character(kind = c_char), dimension(:), pointer :: buffer_array" << std::endl;
+    for (const auto& f : params)
+    {
+      if (f.type()->is_bool())
+      {
+        m_src << tab << "logical, target :: " << param(f.name()) << "_f" << std::endl;
+      }
+    }
   }
   m_src << std::endl;
 
@@ -1660,13 +1667,25 @@ generator::client_request(const std::string& a_interface,
     m_src << tab << "call c_f_pointer(zmq_msg_data(message), buffer)" << std::endl;
     m_src << tab << "call c_f_pointer(zmq_msg_data(message), buffer_array, [archive_size])" << std::endl;
     m_src << tab << "buffer_array(:) = c_null_char" << std::endl;
+    for (const auto& f : params)
+    {
+      if (f.type()->is_bool())
+      {
+        m_src << tab << param(f.name()) << "_f = logical(" << param(f.name()) << ")" << std::endl;
+      }
+    }
     m_src << tab << "call archive%create(buffer, archive_size)" << std::endl;
     m_src << tab << "status = ";
     for (const field& f : params)
     {
+      std::string write_var = param(f.name());
+      if (f.type()->is_bool())
+      {
+        write_var = param(f.name()) + "_f";
+      }
       m_src << (first ? "" : " .and. ");
       m_src << "archive%" << category(f.type(), false);
-      m_src << "(" << param(f.name()) << ")";
+      m_src << "(" << write_var << ")";
       first = false;
     }
     m_src << std::endl;
@@ -1893,6 +1912,13 @@ generator::server_request(const std::string& a_interface,
       break;
     }
   }
+  for (const auto& f : params)
+  {
+    if (f.type()->is_bool())
+    {
+      m_src << tab << "logical :: " << param(f.name()) << "_f" << std::endl;
+    }
+  }
   m_src << std::endl;
 
   m_src << tab << "code = zmq_msg_init(message)" << std::endl;
@@ -1918,8 +1944,20 @@ generator::server_request(const std::string& a_interface,
       m_src << tab << "allocate(" << param(f.name()) << "(length))" << std::endl;
       status = "status .and. ";
     }
+    std::string read_var = param(f.name());
+    if (f.type()->is_bool())
+    {
+      read_var = param(f.name()) + "_f";
+    }
     m_src << tab << "status = " << status << "archive%" << category(f.type(), true);
-    m_src << "(" << param(f.name()) << ")" << std::endl;
+    m_src << "(" << read_var << ")" << std::endl;
+  }
+  for (const auto& f : params)
+  {
+    if (f.type()->is_bool())
+    {
+      m_src << tab << param(f.name()) << " = logical(" << param(f.name()) << "_f, kind=c_bool)" << std::endl;
+    }
   }
   m_src << tab << "code = zmq_msg_close(message)" << std::endl;
 
