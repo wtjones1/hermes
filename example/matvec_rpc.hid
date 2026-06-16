@@ -1,0 +1,8 @@
+structure problem {
+  vector<real64> a,
+  vector<real64> x
+}
+
+interface matvec {
+  vector<real64> dgemv(problem p)
+}
