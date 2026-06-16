@@ -31,27 +31,29 @@ contains
     real(kind = c_double), dimension(:), allocatable              :: r
 
     integer(c_size_t)                                             :: mdim, vdim
+    integer(c_size_t)                                             :: n, i, j
+    integer(c_size_t)                                             :: idx
 
 continue
 
     mdim = a_p%size_a()
     vdim = a_p%size_x()
 
-    if ( mdim < vdim * vdim ) then
+    if ( 0 /= mod(mdim,vdim) ) then
       write(*,*) 'Bad problem dimensions:',mdim,vdim
     endif
 
-    allocate(r(vdim))
+    n = mdim / vdim
 
-    r(1) = a_p%get_a(1) * a_p%get_x(1) +                                       &
-           a_p%get_a(2) * a_p%get_x(2) +                                       &
-           a_p%get_a(3) * a_p%get_x(3)
-    r(2) = a_p%get_a(4) * a_p%get_x(1) +                                       &
-           a_p%get_a(5) * a_p%get_x(2) +                                       &
-           a_p%get_a(6) * a_p%get_x(3)
-    r(3) = a_p%get_a(7) * a_p%get_x(1) +                                       &
-           a_p%get_a(8) * a_p%get_x(2) +                                       &
-           a_p%get_a(9) * a_p%get_x(3)
+    allocate(r(n))
+
+    do i = 1, n
+      r(i) = 0.0_c_double
+      do j = 1, vdim
+        idx = (i - 1) * vdim + j
+        r(i) = r(i) + a_p%get_a(idx) * a_p%get_x(j)
+      end do
+    end do
 
   end function dgemv
 
