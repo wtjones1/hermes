@@ -20,8 +20,9 @@ stub to invoke a server's remotely callable procedures.
 
 The http://zeromq.org[ØMQ] library for decentralized messaging and computing is
 used to handle client-server communications.  With ØMQ under the hood, Hermes
-supports one-to-many and many-to-one connections and can use any of several
-transport protocols, including TCP, inter-process, and inter-thread transport.
+supports one-to-many, many-to-one, routed, and polling connections and can use
+ny of several transport protocols, including TCP, inter-process, and
+inter-thread transport.
 
 == Installation
 
