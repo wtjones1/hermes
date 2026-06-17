@@ -22,3 +22,24 @@ The http://zeromq.org[ØMQ] library for decentralized messaging and computing is
 used to handle client-server communications.  With ØMQ under the hood, Hermes
 supports one-to-many and many-to-one connections and can use any of several
 transport protocols, including TCP, inter-process, and inter-thread transport.
+
+== Installation
+
+The configuration, build, and installation are handled through CMake.  The following is an example configuration and build using GNU compilers:
+
+```
+% cd hermes
+% (mkdir -p _build-gfortran ; \
+   cd _build-gfortran ; \
+     rm -rf * ; \
+     cmake \
+       -DCMAKE_INSTALL_PREFIX=${PWD} \
+       -DCMAKE_C_COMPILER=gcc \
+       -DCMAKE_CXX_COMPILER=g++ \
+       -DCMAKE_Fortran_COMPILER=gfortran5 \
+       -DPYTHON_EXECUTABLE=/usr/local/bin/python3.13 \
+       -DPip_EXECUTABLE=/usr/local/bin/pip3.13 \
+       -DPip_INSTALL_OPTIONS="--prefix ${PWD}" \
+       .. && \
+       make && make install)
+```
